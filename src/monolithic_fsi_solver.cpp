@@ -1,5 +1,4 @@
 
-#include <algorithm>
 #include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_ns_assemblers.h>
 #include <assembly/lagrange_multiplier_assemblers.h>
@@ -27,6 +26,8 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+#include <algorithm>
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -512,8 +513,9 @@ FSISolver<dim>::find_unused_lagrange_multiplier_dofs(
                   if (this->locally_owned_dofs.is_element(dof))
                   {
                     // A shared edge or vertex can be visited on several faces.
-                    if (std::find(unused_dofs.begin(), unused_dofs.end(), dof) !=
-                        unused_dofs.end())
+                    if (std::find(unused_dofs.begin(),
+                                  unused_dofs.end(),
+                                  dof) != unused_dofs.end())
                       continue;
                     unused_dofs.push_back(dof);
                     if (unused_dofs.size() == n_required_dofs)

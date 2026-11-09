@@ -7,8 +7,7 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ## [0.0.0] 2026-11-09
 
 ### Fixed
-Prevent duplicate Lagrange multiplier DoF indices when assigning force accumulators in the monolithic FSI solver.
-Shared vertices and edges are now counted only once when selecting unused DoFs.
+Prevent finding duplicate Lagrange multiplier DoF indices when assigning e.g. force accumulators in the monolithic FSI solver. Shared vertices and edges are now counted only once when selecting unused DoFs. [#110](https://github.com/arthurbawin/fez/pull/110)
 
 ## [0.0.0] 2026-11-05
 

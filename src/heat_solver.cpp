@@ -242,7 +242,8 @@ void HeatSolver<dim>::set_interval_data(const unsigned int interval_index)
 
   // Create a direct solver for each interval
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 }
 
 template <int dim>
@@ -892,7 +893,8 @@ void HeatSolver<dim>::adapt_mesh()
     create_nonzero_constraints();
     create_sparsity_pattern();
     direct_solver_reuse =
-      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                              mpi_communicator);
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
     transient_fixed_point_data.transfer_solution_between_refinements(

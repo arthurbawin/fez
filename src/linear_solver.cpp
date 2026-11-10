@@ -10,8 +10,8 @@
 
 namespace LinearSolvers
 {
-  void solve_mumps(GenericSolver<LA::ParVectorType> *solver,
-                   const Parameters::LinearSolver & /*linear_solver_param*/,
+  void solve_mumps(GenericSolver<LA::ParVectorType>      *solver,
+                   const Parameters::LinearSolver        &linear_solver_param,
                    LA::ParMatrixType                     &system_matrix,
                    const IndexSet                        &locally_owned_dofs,
                    const AffineConstraints<double>       &zero_constraints,

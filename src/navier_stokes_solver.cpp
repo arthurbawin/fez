@@ -71,6 +71,11 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
       if constexpr (with_moving_mesh)
         handler.create_entry("x");
     }
+
+  // Announce the linear solver
+  const auto &lsp = param.linear_solver.at(this->solver_type);
+  if (lsp.verbosity == Parameters::Verbosity::verbose)
+    lsp.print(pcout);
 }
 
 
@@ -384,7 +389,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
         if (param.debug.apply_exact_solution)
           set_exact_solution();
         else
+        {
           solve_nonlinear_problem(time_handler);
+          if (param.bc_data.pressure_null_space)
+            remove_mean_pressure_from_solution();
+        }
       }
 
       compute_max_cfl();
@@ -815,32 +824,21 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_exact_solution()
                            local_evaluation_point,
                            pressure_mask);
 
-  if (param.bc_data.enforce_zero_mean_pressure)
+  // Zero-mean pressure, enforced by a constraint or after each solve
+  if (param.bc_data.enforce_zero_mean_pressure ||
+      param.bc_data.pressure_null_space)
   {
-    *present_solution       = local_evaluation_point;
-    const double p_mean     = VectorTools::compute_mean_value(*moving_mapping,
-                                                          *dof_handler,
-                                                          *quadrature,
-                                                          *present_solution,
-                                                          ordering->p_lower);
-    const double p_mms_mean = compute_global_mean_value(*exact_solution,
-                                                        ordering->p_lower,
-                                                        *dof_handler,
-                                                        *moving_mapping);
+    *present_solution   = local_evaluation_point;
+    const double p_mean = remove_mean_pressure_from_solution();
 
-    pcout << "Before removing pressure: " << p_mean << std::endl;
-    pcout << "Analytic mean is        : " << p_mms_mean << std::endl;
-    BoundaryConditions::remove_mean_pressure(pressure_mask,
-                                             *dof_handler,
-                                             p_mean,
-                                             local_evaluation_point);
-    *present_solution    = local_evaluation_point;
-    const double p_mean2 = VectorTools::compute_mean_value(*moving_mapping,
-                                                           *dof_handler,
-                                                           *quadrature,
-                                                           *present_solution,
-                                                           ordering->p_lower);
-    pcout << "After  removing pressure: " << p_mean2 << std::endl;
+    if (param.bc_data.fluid_verbosity == Parameters::Verbosity::verbose)
+    {
+      pcout << "Before removing pressure: " << p_mean << std::endl;
+      pcout << "Analytic mean is        : " << compute_exact_mean_pressure()
+            << std::endl;
+      pcout << "After  removing pressure: " << compute_mean_pressure()
+            << std::endl;
+    }
   }
 
   set_solver_specific_exact_solution();
@@ -881,8 +879,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 
-  if (linear_solver_param.method ==
-      Parameters::LinearSolver::Method::direct_mumps)
+  if (!linear_solver_param.is_iterative())
   {
     LinearSolvers::solve_mumps(this,
                                linear_solver_param,
@@ -897,6 +894,41 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
     // The choice of appropriate iterative solver and preconditioner is
     // delegated to each derived solver
     solve_linear_system_iterative();
+}
+
+template <int dim, bool with_moving_mesh>
+double
+NavierStokesSolver<dim, with_moving_mesh>::remove_mean_pressure_from_solution()
+{
+  const double p_mean    = compute_mean_pressure();
+  local_evaluation_point = *present_solution;
+  BoundaryConditions::remove_mean_pressure(pressure_mask,
+                                           *dof_handler,
+                                           p_mean,
+                                           local_evaluation_point);
+  *present_solution = local_evaluation_point;
+  evaluation_point  = local_evaluation_point;
+  return p_mean;
+}
+
+template <int dim, bool with_moving_mesh>
+double NavierStokesSolver<dim, with_moving_mesh>::compute_mean_pressure() const
+{
+  return VectorTools::compute_mean_value(*moving_mapping,
+                                         *dof_handler,
+                                         *quadrature,
+                                         *present_solution,
+                                         ordering->p_lower);
+}
+
+template <int dim, bool with_moving_mesh>
+double
+NavierStokesSolver<dim, with_moving_mesh>::compute_exact_mean_pressure() const
+{
+  return compute_global_mean_value(*exact_solution,
+                                   ordering->p_lower,
+                                   *dof_handler,
+                                   *moving_mapping);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -943,11 +975,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
    */
   std::shared_ptr<Function<dim>> used_exact_solution = exact_solution;
 
-  if (param.bc_data.enforce_zero_mean_pressure)
+  // Zero-mean pressure, enforced by a constraint or after each solve
+  if (param.bc_data.enforce_zero_mean_pressure ||
+      param.bc_data.pressure_null_space)
   {
     // Mean pressure value
-    const double p_mean = VectorTools::compute_mean_value(
-      *moving_mapping, *dof_handler, *quadrature, *present_solution, p_lower);
+    const double p_mean = compute_mean_pressure();
 
     AssertThrow(std::abs(p_mean) < 1e-10,
                 ExcMessage(
@@ -957,10 +990,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
     if (param.mms_param.enable)
     {
       // Use a function wrapper where the pressure mean is subtracted
-      const double p_mms_mean = compute_global_mean_value(*exact_solution,
-                                                          p_lower,
-                                                          *dof_handler,
-                                                          *moving_mapping);
+      const double p_mms_mean = compute_exact_mean_pressure();
 
       if (param.mms_param.subtract_mean_pressure)
         used_exact_solution =

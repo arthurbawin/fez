@@ -9,6 +9,30 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ### Fixed
 Prevent finding duplicate Lagrange multiplier DoF indices when assigning e.g. force accumulators in the monolithic FSI solver. Shared vertices and edges are now counted only once when selecting unused DoFs. [#110](https://github.com/arthurbawin/fez/pull/110)
 
+## [0.0.0] 2026-11-08
+
+### Added
+Added a block Schur complement preconditioner for the GMRES solves of the nonstabilized incompressible NS solver, through PETSc's PCFIELDSPLIT with an upper triangular block factorization [#114](https://github.com/arthurbawin/fez/pull/114):
+ - "fieldsplit_schur_cc": Cahouet-Chabard approximation of the Schur complement, S^-1 ≈ (-Mp/nu)^-1 + (-A10 (c0 diag(Mu))^-1 A01)^-1, for unsteady problems. Steady problems use the mass approximation S^-1 ≈ (-Mp/nu)^-1.
+ - The velocity block is preconditioned as chosen by the new "velocity block preconditioner" parameter (auto, amg, amg_ilu or block_jacobi), with the "ilu fill level" for the ILU.
+ - All the PETSc options of this preconditioner are prefixed with "fez_fs_", and can be overridden from the command line.
+ - It requires "enable supg = false", and hypre's BoomerAMG (except for the mass approximation with the block_jacobi velocity preconditioner). amg_ilu requires PETSc 3.22 or higher.
+ - Added tests for the fieldsplit_schur_cc preconditioner: 2D unsteady and 3D steady manufactured solutions with "pressure null space", a 2D steady manufactured solution with open boundaries, and an unsteady flow around a cylinder with adaptive mesh refinement.
+
+Added the "pressure null space" parameter (Fluid boundary conditions), for flows with the normal velocity prescribed on the whole boundary, solved with an iterative linear solver: the pressure constant is left undetermined, the constant pressure mode is given to PETSc as the null space of the system matrix and of its transpose, the Newton residual is projected onto the range of the Jacobian matrix before its norm is computed, and the mean pressure is set to zero after each nonlinear solve. [#114](https://github.com/arthurbawin/fez/pull/114)
+
+### Changed
+"fix pressure constant" is now only allowed with the direct (MUMPS) solver. The stabilized AMG tests with a pinned pressure now use "pressure null space". [#114](https://github.com/arthurbawin/fez/pull/114)
+
+Changed the preconditioner rebuild heuristic of the incompressible NS solver for unsteady problems: instead of the number of GMRES iterations, it compares the GMRES iterations per decade of residual reduction of the first solve of the previous time step with those of the first solve of a time step with the current preconditioner, and rebuilds it when they exceed both 1.3 times, and 0.5 more than, the latter. This compares solves stopped at different residual reductions (e.g., by the absolute tolerance). [#114](https://github.com/arthurbawin/fez/pull/114)
+
+Changes to the linear solvers [#114](https://github.com/arthurbawin/fez/pull/114):
+ - PETSc's GMRES reorthogonalizes its classical Gram-Schmidt when needed (refine_ifneeded), unless chosen otherwise on the command line, as the loss of orthogonality made the true residual stagnate on long Krylov spaces.
+ - With "pressure null space", BoomerAMG uses a smoother instead of a direct solve on its coarsest level.
+
+### Fixed
+`compute_global_mean_value()` used a simplex quadrature on all meshes, yielding erroneous results on quad/hex meshes. It now uses the Gauss quadrature of the reference cell of the finite element. [#114](https://github.com/arthurbawin/fez/pull/114)
+
 ## [0.0.0] 2026-11-05
 
 ### Fixed
@@ -70,6 +94,7 @@ Added the "lgpi" deal.II preset mesh (2D only) for the large gas pocket impact b
 
 ### Fixed
 Fixed bugs found while reviewing the solvers, assemblers and mesh adaptation tools [#100](https://github.com/arthurbawin/fez/pull/100):
+
  - Linear elasticity: the ScratchData `components` vector was sized with the number of quadrature points instead of the number of dofs per cell, causing out-of-bounds writes.
  - NS with Lagrange multiplier: the time error estimator was never attached (crash with adaptive time stepping), and the hp line identities loops now skip artificial cells.
  - Monolithic FSI: owned boundary dofs only seen as boundary dofs by other ranks (3D) were missed when exchanging boundary dofs; the Lagrange multiplier error now uses the kinematic viscosity, consistent with the solved equations; fixed an MPI operator leak and made the rigid-body displacement check two-sided and across ranks; rigid-body rotation now throws at setup for unsupported coupling schemes.

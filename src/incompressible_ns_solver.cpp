@@ -10,6 +10,7 @@
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/matrix_creator.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -17,19 +18,28 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <post_processing_tools.h>
+#include <precondition_fieldsplit.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
 #if defined(DEAL_II_WITH_PETSC)
 #  include <petscmat.h>
+
+#  include <deal.II/lac/exceptions.h>
+
+// Shorthand notation for PETSc error codes.
+#  define AssertPETSc(code)                        \
+    do                                             \
+    {                                              \
+      PetscErrorCode ierr = (code);                \
+      AssertThrow(ierr == 0, ExcPETScError(ierr)); \
+    }                                              \
+    while (false)
 #endif
 
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
-  , bdf_c0_at_preconditioner_setup(0.)
-  , n_iterations_after_preconditioner_setup(0)
-  , last_solve_info({0, true})
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
@@ -162,6 +172,15 @@ void NSSolver<dim>::setup_assemblers()
 }
 
 template <int dim>
+void NSSolver<dim>::create_zero_constraints()
+{
+  NavierStokesSolver<dim>::create_zero_constraints();
+
+  if (this->param.bc_data.pressure_null_space)
+    create_pressure_null_vector();
+}
+
+template <int dim>
 void NSSolver<dim>::create_sparsity_pattern()
 {
   //
@@ -210,6 +229,9 @@ void NSSolver<dim>::create_sparsity_pattern()
                              dsp,
                              this->mpi_communicator);
 
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+
 #if defined(DEAL_II_WITH_PETSC)
   // For P1-P1 or Q1-Q1 elements, all dofs are located at the vertices, and the
   // (u, p) dofs of each vertex are numbered consecutively, in component order.
@@ -220,12 +242,7 @@ void NSSolver<dim>::create_sparsity_pattern()
   // vertices (nodes) rather than the individual dofs, using the Frobenius norm
   // of each nodal block of the matrix as connection strength, so that all
   // components of a node are kept or discarded together on the coarse levels.
-  const auto &linear_solver_param =
-    this->param.linear_solver.at(this->solver_type);
-  if (linear_solver_param.method !=
-        Parameters::LinearSolver::Method::direct_mumps &&
-      linear_solver_param.preconditioner ==
-        Parameters::LinearSolver::PreconditionerType::amg &&
+  if (linear_solver_param.use_amg() &&
       this->param.finite_elements.velocity_degree == 1 &&
       this->param.finite_elements.pressure_degree == 1)
   {
@@ -238,6 +255,46 @@ void NSSolver<dim>::create_sparsity_pattern()
                            " (error code " + std::to_string(ierr) + ")"));
   }
 #endif
+
+  // Data of the Cahouet-Chabard block Schur preconditioner: the dofs of each
+  // field, and the sparsity pattern of the pressure mass matrix
+  block_schur_data.is_assembled = false;
+  if (linear_solver_param.use_cc())
+  {
+    // Locally owned dofs of each field
+    block_schur_data.velocity_dofs =
+      DoFTools::extract_dofs(*this->dof_handler, this->velocity_mask);
+    block_schur_data.pressure_dofs =
+      DoFTools::extract_dofs(*this->dof_handler, this->pressure_mask);
+
+    // Only the pressure couples to itself
+    Table<2, DoFTools::Coupling> pressure_coupling(n_components, n_components);
+    for (unsigned int c = 0; c < n_components; ++c)
+      for (unsigned int d = 0; d < n_components; ++d)
+        pressure_coupling[c][d] =
+          (this->ordering->is_pressure(c) && this->ordering->is_pressure(d)) ?
+            DoFTools::always :
+            DoFTools::none;
+
+    DynamicSparsityPattern mass_dsp(this->locally_relevant_dofs);
+    DoFTools::make_sparsity_pattern(*this->dof_handler,
+                                    pressure_coupling,
+                                    mass_dsp,
+                                    this->nonzero_constraints,
+                                    /* keep_constrained_dofs = */ false);
+    // Constrained velocity dofs are not coupled in the pattern above, but
+    // distribute_local_to_global() still writes their diagonal entry
+    for (const auto i : this->locally_owned_dofs)
+      mass_dsp.add(i, i);
+    SparsityTools::distribute_sparsity_pattern(mass_dsp,
+                                               this->locally_owned_dofs,
+                                               this->mpi_communicator,
+                                               this->locally_relevant_dofs);
+    block_schur_data.pressure_mass_matrix.reinit(this->locally_owned_dofs,
+                                                 this->locally_owned_dofs,
+                                                 mass_dsp,
+                                                 this->mpi_communicator);
+  }
 }
 
 template <int dim>
@@ -371,14 +428,13 @@ void NSSolver<dim>::create_preconditioner()
   // Update heuristic indicators
   this->should_assemble_preconditioner       = false;
   this->preconditioner_rebuilt_at_last_solve = true;
-  this->bdf_c0_at_preconditioner_setup = this->time_handler.bdf_coefficients[0];
-  this->n_iterations_after_preconditioner_setup = 0;
+  rebuild_data.bdf_c0_at_setup = this->time_handler.bdf_coefficients[0];
+  rebuild_data.iterations_per_decade_after_setup = 0.;
 
   const auto &linear_solver_param =
     this->param.linear_solver.at(this->solver_type);
 
-  if (linear_solver_param.preconditioner ==
-      Parameters::LinearSolver::PreconditionerType::amg)
+  if (linear_solver_param.use_amg())
   {
     // Setup AMG preconditioner with ILU smoother
     TimerOutput::Scope t(this->computing_timer, "Setup AMG preconditioner");
@@ -407,8 +463,67 @@ void NSSolver<dim>::create_preconditioner()
 #endif
 
     LA::MPI::PreconditionAMG::AdditionalData data;
+#if defined(FEZ_WITH_PETSC)
+    // With a pressure null space, the matrix is singular: avoid the direct
+    // solve on the coarsest level
+    if (this->param.bc_data.pressure_null_space)
+      data.relaxation_type_coarse = LA::MPI::PreconditionAMG::AdditionalData::
+        RelaxationType::symmetricSORJacobi;
+#endif
     preconditioner =
       std::make_unique<LA::MPI::PreconditionAMG>(this->system_matrix, data);
+  }
+  else if (linear_solver_param.use_fieldsplit())
+  {
+    TimerOutput::Scope t(this->computing_timer,
+                         "Setup field split Schur preconditioner");
+
+    const IndexSet &velocity_dofs = block_schur_data.velocity_dofs;
+    const IndexSet &pressure_dofs = block_schur_data.pressure_dofs;
+
+    using Precondition = PETScWrappers::PreconditionFieldSplitSchur;
+
+    Precondition::AdditionalData data;
+    data.velocity_preconditioner =
+      linear_solver_param.velocity_block_preconditioner;
+    data.ilu_fill_level      = linear_solver_param.ilu_fill_level;
+    data.pressure_null_space = this->param.bc_data.pressure_null_space;
+
+    // Diagonal of the time derivative term of the momentum block,
+    // c0 diag(Mu), with the current leading BDF coefficient (Cahouet-Chabard)
+    LA::ParVectorType time_derivative_diagonal;
+
+    // Cahouet-Chabard approximation of S = −A10 * A00^-1 * A01, given by
+    // Ŝ^-1 = (−Mp/ν)^-1 + (−A10 * (c0 diag(Mu))^-1 * A01)^-1,
+    // with Mp and Mu the pressure and velocity mass matrices, respectively.
+    // These matrices are only assembled after a change of their sparsity
+    // pattern.
+    using SchurApproximation = Precondition::SchurApproximation;
+    const bool steady        = this->time_handler.is_steady();
+    if (!block_schur_data.is_assembled)
+    {
+      assemble_pressure_mass_matrix();
+      if (!steady)
+        assemble_velocity_mass_diagonal();
+      block_schur_data.is_assembled = true;
+    }
+
+    data.scaled_pressure_mass_matrix = &block_schur_data.pressure_mass_matrix;
+    if (steady)
+      // Without time derivative, only the mass term remains
+      data.schur_approximation = SchurApproximation::mass;
+    else
+    {
+      time_derivative_diagonal = block_schur_data.velocity_mass_diagonal;
+      time_derivative_diagonal *= this->time_handler.bdf_coefficients[0];
+      data.schur_approximation      = SchurApproximation::cahouet_chabard;
+      data.time_derivative_diagonal = &time_derivative_diagonal;
+    }
+
+    preconditioner = std::make_unique<Precondition>(this->system_matrix,
+                                                    velocity_dofs,
+                                                    pressure_dofs,
+                                                    data);
   }
   else
     // Let the common function create other standard types of preconditioner
@@ -418,7 +533,66 @@ void NSSolver<dim>::create_preconditioner()
 }
 
 template <int dim>
-bool NSSolver<dim>::should_rebuild_preconditioner() const
+void NSSolver<dim>::assemble_pressure_mass_matrix()
+{
+  const double nu =
+    this->param.physical_properties.fluids[0].kinematic_viscosity;
+
+  // Coefficient -1/nu on the pressure component and zero on the velocity
+  // components. Zero velocity entries are computed, but not written to the
+  // matrix.
+  const ComponentSelectFunction<dim> coefficient(this->ordering->p_lower,
+                                                 -1. / nu,
+                                                 this->ordering->n_components);
+
+  block_schur_data.pressure_mass_matrix = 0;
+  MatrixCreator::create_mass_matrix(*mapping,
+                                    *this->dof_handler,
+                                    *this->quadrature,
+                                    block_schur_data.pressure_mass_matrix,
+                                    &coefficient,
+                                    this->zero_constraints);
+}
+
+template <int dim>
+void NSSolver<dim>::assemble_velocity_mass_diagonal()
+{
+  auto &diagonal = block_schur_data.velocity_mass_diagonal;
+  diagonal.reinit(this->locally_owned_dofs, this->mpi_communicator);
+
+  FEValues<dim> fe_values(*mapping,
+                          *fe,
+                          *this->quadrature,
+                          update_values | update_JxW_values);
+
+  const unsigned int                   dofs_per_cell = fe->n_dofs_per_cell();
+  Vector<double>                       local_diagonal(dofs_per_cell);
+  std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
+
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      local_diagonal = 0.;
+      for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          if (this->ordering->is_velocity(
+                fe->system_to_component_index(i).first))
+          {
+            // Only one component of each vector shape function is nonzero
+            const double phi_i = fe_values.shape_value(i, q);
+            local_diagonal(i) += phi_i * phi_i * fe_values.JxW(q);
+          }
+
+      cell->get_dof_indices(dof_indices);
+      diagonal.add(dof_indices, local_diagonal);
+    }
+  diagonal.compress(VectorOperation::add);
+}
+
+template <int dim>
+bool NSSolver<dim>::should_rebuild_preconditioner(
+  const bool first_solve_of_time_step) const
 {
   const bool verbose =
     this->param.linear_solver.at(this->solver_type).verbosity ==
@@ -450,7 +624,7 @@ bool NSSolver<dim>::should_rebuild_preconditioner() const
   // The mass matrix contribution to the Jacobian scales with the leading BDF
   // coefficient, which changes with the time step or the BDF order
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-  if (std::abs(bdf_c0 - bdf_c0_at_preconditioner_setup) >
+  if (std::abs(bdf_c0 - rebuild_data.bdf_c0_at_setup) >
       1e-10 * std::abs(bdf_c0))
   {
     if (verbose)
@@ -461,8 +635,8 @@ bool NSSolver<dim>::should_rebuild_preconditioner() const
 
   // The remaining criteria are based on the last solve performed with the
   // current preconditioner, if any
-  const unsigned int n_ref = n_iterations_after_preconditioner_setup;
-  if (n_ref == 0)
+  const auto &last_solve_info = rebuild_data.last_solve_info;
+  if (last_solve_info.n_iterations == 0 && last_solve_info.converged)
     return false;
 
   if (!last_solve_info.converged)
@@ -473,19 +647,28 @@ bool NSSolver<dim>::should_rebuild_preconditioner() const
     return true;
   }
 
-  // Rebuild if the GMRES iterations exceed both this factor times, and this
-  // increment above, the iterations of the first solve performed with the
-  // current preconditioner
-  constexpr double       max_iterations_ratio     = 1.5;
-  constexpr unsigned int max_iterations_increment = 5;
-  if (last_solve_info.n_iterations > max_iterations_ratio * n_ref &&
-      last_solve_info.n_iterations > n_ref + max_iterations_increment)
+  // Compare the first solves of the time steps only, see the documentation
+  const double ref = rebuild_data.iterations_per_decade_after_setup;
+  if (!first_solve_of_time_step || ref == 0.)
+    return false;
+
+  // Rebuild if the GMRES iterations per decade of residual reduction of the
+  // first solve of the previous time step exceed both this factor times, and
+  // this increment above, those of the first solve of a time step with the
+  // current preconditioner. The increment (about 3 iterations over 6 decades)
+  // only filters noise: with fast convergence (about 2 iterations per decade),
+  // a larger increment would let the preconditioner degrade by half before
+  // it is rebuilt
+  constexpr double max_ratio     = 1.3;
+  constexpr double max_increment = 0.5;
+  const double current = rebuild_data.iterations_per_decade_at_last_first_solve;
+  if (current > max_ratio * ref && current > ref + max_increment)
   {
     if (verbose)
-      this->pcout << "Rebuilding preconditioner: "
-                  << last_solve_info.n_iterations
-                  << " GMRES iterations, compared to " << n_ref
-                  << " after its last setup" << std::endl;
+      this->pcout << "Rebuilding preconditioner: " << current
+                  << " GMRES iterations per decade of residual reduction at "
+                     "the first Newton iteration, compared to "
+                  << ref << " after its last setup" << std::endl;
     return true;
   }
 
@@ -503,6 +686,18 @@ void NSSolver<dim>::solve_linear_system_iterative()
               ExcMessage("Only GMRES is available as iterative solver for "
                          "the incompressible_ns solver"));
 
+  if (this->param.bc_data.pressure_null_space)
+    attach_pressure_null_space();
+
+  // First linear solve of this time step, i.e. first Newton iteration
+  const bool first_solve_of_time_step =
+    this->time_handler.current_time_iteration !=
+    rebuild_data.time_iteration_at_last_solve;
+  rebuild_data.time_iteration_at_last_solve =
+    this->time_handler.current_time_iteration;
+
+  auto &last_solve_info = rebuild_data.last_solve_info;
+
   const auto solve = [&]() {
     last_solve_info = LinearSolvers::solve_gmres(this,
                                                  linear_solver_param,
@@ -510,16 +705,23 @@ void NSSolver<dim>::solve_linear_system_iterative()
                                                  this->locally_owned_dofs,
                                                  this->zero_constraints,
                                                  preconditioner);
-    // Store the iterations of the first solve with this preconditioner
-    if (n_iterations_after_preconditioner_setup == 0)
-      n_iterations_after_preconditioner_setup =
-        std::max(last_solve_info.n_iterations, 1u);
+    // Store the convergence speed of the first solve of the time step, and
+    // of the first one with this preconditioner (if the residual was reduced,
+    // otherwise wait for the next time step)
+    if (first_solve_of_time_step)
+    {
+      rebuild_data.iterations_per_decade_at_last_first_solve =
+        last_solve_info.iterations_per_decade;
+      if (rebuild_data.iterations_per_decade_after_setup == 0.)
+        rebuild_data.iterations_per_decade_after_setup =
+          last_solve_info.iterations_per_decade;
+    }
   };
 
   // Set to true by create_preconditioner() if called during this solve
   this->preconditioner_rebuilt_at_last_solve = false;
 
-  const bool rebuild = should_rebuild_preconditioner();
+  const bool rebuild = should_rebuild_preconditioner(first_solve_of_time_step);
   if (rebuild)
     create_preconditioner();
   solve();
@@ -535,6 +737,53 @@ void NSSolver<dim>::solve_linear_system_iterative()
     create_preconditioner();
     solve();
   }
+}
+
+template <int dim>
+void NSSolver<dim>::create_pressure_null_vector()
+{
+  pressure_null_vector.reinit(this->locally_owned_dofs, this->mpi_communicator);
+  for (const auto i : this->locally_owned_dofs)
+    if (this->ordering->is_pressure(
+          this->dofs_to_component[this->locally_relevant_dofs.index_within_set(
+            i)]) &&
+        !this->zero_constraints.is_constrained(i))
+      pressure_null_vector[i] = 1.;
+  pressure_null_vector.compress(VectorOperation::insert);
+  pressure_null_vector /= pressure_null_vector.l2_norm();
+}
+
+template <int dim>
+void NSSolver<dim>::attach_pressure_null_space()
+{
+#if defined(FEZ_WITH_PETSC)
+  Vec          vector = static_cast<const Vec &>(pressure_null_vector);
+  MatNullSpace null_space;
+  AssertPETSc(MatNullSpaceCreate(
+    this->mpi_communicator, PETSC_FALSE, 1, &vector, &null_space));
+  AssertPETSc(
+    MatSetNullSpace(static_cast<const Mat &>(this->system_matrix), null_space));
+  AssertPETSc(
+    MatSetTransposeNullSpace(static_cast<const Mat &>(this->system_matrix),
+                             null_space));
+  // MatNullSpaceCreate() references the vector (no copy), and the matrix
+  // references the null space, so the local handle can be destroyed right away
+  AssertPETSc(MatNullSpaceDestroy(&null_space));
+#else
+  AssertThrow(false,
+              ExcMessage("Pressure null space handling requires PETSc."));
+#endif
+}
+
+template <int dim>
+void NSSolver<dim>::finalize_rhs()
+{
+  if (!this->param.bc_data.pressure_null_space)
+    return;
+
+  // Same projection as the one of the right-hand side by the linear solver
+  this->system_rhs.add(-(pressure_null_vector * this->system_rhs),
+                       pressure_null_vector);
 }
 
 // Explicit instantiation

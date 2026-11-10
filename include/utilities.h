@@ -294,7 +294,9 @@ compute_relative_error(const double A,
 }
 
 /**
- * Compute the mean value of the given function f on the mesh.
+ * Compute the mean value of the given function f on the mesh, with a Gauss
+ * quadrature of @p n_q_points per direction (or its simplex counterpart)
+ * matching the reference cell of the finite element.
  */
 template <int dim>
 double compute_global_mean_value(const Function<dim>   &f,
@@ -303,9 +305,18 @@ double compute_global_mean_value(const Function<dim>   &f,
                                  const Mapping<dim>    &mapping,
                                  const unsigned int     n_q_points = 4)
 {
-  double             I_local = 0., vol_local = 0.;
-  QGaussSimplex<dim> quadrature(n_q_points);
-  FEValues<dim>      fe_values(mapping,
+  double I_local = 0., vol_local = 0.;
+  // Get quadrature rule from the reference cell
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  const Quadrature<dim> quadrature =
+    dof_handler.get_fe().reference_cell().get_gauss_type_quadrature(n_q_points);
+#else
+  const Quadrature<dim> quadrature =
+    dof_handler.get_fe()
+      .reference_cell()
+      .template get_gauss_type_quadrature<dim>(n_q_points);
+#endif
+  FEValues<dim> fe_values(mapping,
                           dof_handler.get_fe(),
                           quadrature,
                           update_quadrature_points | update_JxW_values);

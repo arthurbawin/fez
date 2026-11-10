@@ -5,11 +5,76 @@ template <int dim>
 void ParameterReader<dim>::check_parameters() const
 {
   // Pressure nullspace
+  // FIXME: these bools will be combined in a single parameter
   AssertThrow(
     !(bc_data.fix_pressure_constant && bc_data.enforce_zero_mean_pressure),
     ExcMessage(
       "\n Both fixing a pressure DoF *and* enforcing zero-mean pressure "
       "may be ill-posed. Please choose one or the other."));
+
+  AssertThrow(
+    !(bc_data.pressure_null_space &&
+      (bc_data.fix_pressure_constant || bc_data.enforce_zero_mean_pressure)),
+    ExcMessage("\n 'pressure null space' replaces 'fix pressure constant' and "
+               "'enforce zero mean pressure': please choose only one way of "
+               "handling the pressure constant."));
+
+  // A pinned pressure dof leaves a near-null mode in the system, whose
+  // eigenvalue decreases with the mesh size and which iterative solvers
+  // resolve poorly: on fine meshes, the pressure converges erratically, or not
+  // at all. Iterative solvers should use the pressure null space instead.
+  if (bc_data.fix_pressure_constant &&
+      linear_solver.count(SolverInfo::SolverType::main_physics) > 0)
+    AssertThrow(
+      !linear_solver.at(SolverInfo::SolverType::main_physics).is_iterative(),
+      ExcMessage(
+        "\n 'fix pressure constant' is only allowed with the direct_mumps "
+        "linear solver. With an iterative solver, set 'pressure null space = "
+        "true' instead."));
+
+  // With the pressure null space, the system matrix is singular
+  if (bc_data.pressure_null_space &&
+      linear_solver.count(SolverInfo::SolverType::main_physics) > 0)
+    AssertThrow(
+      linear_solver.at(SolverInfo::SolverType::main_physics).is_iterative(),
+      ExcMessage(
+        "\n 'pressure null space' requires an iterative linear solver, as "
+        "the system matrix is singular. With direct_mumps, set 'fix pressure "
+        "constant = true' instead."));
+
+  // The field split Schur preconditioner assumes a zero pressure block, which
+  // the PSPG stabilization makes nonzero: stabilized formulations should use
+  // a monolithic preconditioner (amg)
+  if (stabilization.enable_supg &&
+      linear_solver.count(SolverInfo::SolverType::main_physics) > 0)
+    AssertThrow(
+      !linear_solver.at(SolverInfo::SolverType::main_physics).use_fieldsplit(),
+      ExcMessage("\n The fieldsplit_schur_cc preconditioner requires 'enable "
+                 "supg = false': it assumes a zero pressure-pressure block, "
+                 "which the PSPG stabilization makes nonzero. Use the amg "
+                 "preconditioner with stabilization."));
+
+  // The constant pressure is in the null space only if the normal velocity is
+  // prescribed on the whole boundary
+  // FIXME: should maybe use a function that returns whether a BC sets the
+  // normal velocity
+  if (bc_data.pressure_null_space)
+    for (const auto &[id, bc] : fluid_bc)
+    {
+      using Type = BoundaryConditions::Type;
+      const bool prescribes_normal_velocity =
+        bc.type == Type::input_function || bc.type == Type::dirichlet_mms ||
+        bc.type == Type::no_slip || bc.type == Type::slip ||
+        bc.type == Type::velocity_mms || bc.type == Type::velocity_flux_mms;
+      AssertThrow(prescribes_normal_velocity,
+                  ExcMessage(
+                    "'pressure null space = true' requires the normal "
+                    "velocity to be prescribed (strongly) on the whole "
+                    "boundary, but boundary " +
+                    std::to_string(id) +
+                    " has a boundary condition that does not, and which "
+                    "already determines the pressure constant."));
+    }
 
   bool has_strong_pressure_bc = false;
   for (const auto &[id, bc] : fluid_bc)
@@ -49,6 +114,12 @@ void ParameterReader<dim>::check_parameters() const
         "an "
         "exact pressure field. This is not compatible in general, so this is "
         "currently disallowed."));
+  if (mms.set_field_as_solution.count("pressure") > 0)
+    AssertThrow(!(bc_data.pressure_null_space &&
+                  mms.set_field_as_solution.at("pressure")),
+                ExcMessage("\n 'pressure null space' is incompatible with "
+                           "setting the exact pressure field, which "
+                           "constrains all pressure dofs."));
 
   // Initial conditions
   AssertThrow(

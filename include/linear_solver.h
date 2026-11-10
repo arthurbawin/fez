@@ -3,12 +3,16 @@
 
 #include <deal.II/base/index_set.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/exceptions.h>
 #include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/petsc_compatibility.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameters.h>
 #include <types.h>
+
+#include <cmath>
 
 namespace LinearSolvers
 {
@@ -43,6 +47,11 @@ namespace LinearSolvers
   {
     unsigned int n_iterations;
     bool         converged;
+
+    // Number of iterations per decade (order) of residual reduction, which
+    // compares the convergence speed of solves stopped at different reductions
+    // (e.g. by the absolute tolerance). Zero if the residual was not reduced.
+    double iterations_per_decade;
   };
 
   /**
@@ -92,6 +101,7 @@ namespace LinearSolvers
     const PETScWrappers::MatrixBase                  &system_matrix,
     std::unique_ptr<PETScWrappers::PreconditionBase> &preconditioner);
 } // namespace LinearSolvers
+
 
 /* ---------------- Template functions ----------------- */
 
@@ -148,6 +158,23 @@ namespace LinearSolvers
     {
       if constexpr (std::is_same_v<VectorType, LA::ParVectorType>)
       {
+        // PETSc's default classical Gram-Schmidt, without reorthogonalization,
+        // can lose orthogonality on long Krylov spaces: the true residual then
+        // stagnates while GMRES' estimate keeps decreasing, and the solver
+        // needs many more iterations to reach a tight tolerance.
+        // Reorthogonalize only when needed, unless this was chosen on the
+        // command line.
+        PetscBool            refinement_is_set = PETSC_FALSE;
+        const PetscErrorCode ierr =
+          PetscOptionsHasName(nullptr,
+                              nullptr,
+                              "-ksp_gmres_cgs_refinement_type",
+                              &refinement_is_set);
+        AssertThrow(ierr == 0, ExcPETScError(ierr));
+        if (!refinement_is_set)
+          PETScWrappers::set_option_value("-ksp_gmres_cgs_refinement_type",
+                                          "refine_ifneeded");
+
         // PETSc's GMRES:
         PETScWrappers::SolverGMRES gmres_solver(
           solver_control,
@@ -195,7 +222,22 @@ namespace LinearSolvers
     newton_update = completely_distributed_solution;
     zero_constraints.distribute(newton_update);
 
-    return {solver_control.last_step(), converged};
+    const unsigned int n_iterations          = solver_control.last_step();
+    const double       initial_residual      = solver_control.initial_value();
+    const double       final_residual        = solver_control.last_value();
+    double             iterations_per_decade = 0.;
+    if (n_iterations > 0 && final_residual > 0. &&
+        final_residual < initial_residual)
+      iterations_per_decade =
+        n_iterations / std::log10(initial_residual / final_residual);
+
+    if (linear_solver_param.verbosity == Parameters::Verbosity::verbose)
+      solver->pcout << n_iterations
+                    << " GMRES iterations needed to obtain convergence ("
+                    << iterations_per_decade
+                    << " per decade of residual reduction)" << std::endl;
+
+    return {n_iterations, converged, iterations_per_decade};
   }
 } // namespace LinearSolvers
 

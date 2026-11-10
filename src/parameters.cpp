@@ -5,6 +5,7 @@
 #include <utilities.h>
 
 #include <cmath>
+#include <iomanip>
 
 namespace Parameters
 {
@@ -65,6 +66,16 @@ namespace Parameters
         "false",
         Patterns::Bool(),
         "Fix pressure nullspace by enforcing zero-mean pressure");
+      prm.declare_entry(
+        "pressure null space",
+        "false",
+        Patterns::Bool(),
+        "For flows with the normal velocity prescribed on the whole boundary, "
+        "in which the pressure is determined up to a constant: instead of "
+        "pinning a pressure dof or constraining the mean pressure, leave the "
+        "linear systems singular, and give the constant pressure mode to the "
+        "iterative solver as their null space (iterative linear solvers "
+        "only). The mean pressure is set to zero after each nonlinear solve. ");
     }
     prm.leave_subsection();
   }
@@ -76,6 +87,7 @@ namespace Parameters
       READ_VERBOSITY_PARAM(prm, fluid_verbosity)
       fix_pressure_constant      = prm.get_bool("fix pressure constant");
       enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
+      pressure_null_space        = prm.get_bool("pressure null space");
     }
     prm.leave_subsection();
   }
@@ -1244,7 +1256,8 @@ namespace Parameters
                         "Method");
       prm.declare_entry("preconditioner",
                         "none",
-                        Patterns::Selection("none|ilu|block_jacobi|amg"),
+                        Patterns::Selection(
+                          "none|ilu|block_jacobi|amg|fieldsplit_schur_cc"),
                         "Method");
       prm.declare_entry("absolute tolerance",
                         "1e-12",
@@ -1280,12 +1293,59 @@ namespace Parameters
       prm.declare_entry("ilu fill level",
                         "0",
                         Patterns::Integer(),
-                        "Max level of fill-in for ILU preconditioner");
-      prm.declare_entry("reuse", "false", Patterns::Bool(), "");
+                        "Max level of fill-in for ILU preconditioner. Also "
+                        "used for the ILU of the velocity block preconditioner "
+                        "(amg_ilu and block_jacobi) of the fieldsplit_schur_cc "
+                        "preconditioner.");
+      prm.declare_entry(
+        "velocity block preconditioner",
+        "auto",
+        Patterns::Selection("auto|amg|amg_ilu|block_jacobi"),
+        "For the fieldsplit_schur_cc preconditioner, preconditioner of the "
+        "velocity block A00, applied once per outer iteration. amg: one "
+        "BoomerAMG V-cycle with hypre's default smoother. amg_ilu: one "
+        "BoomerAMG V-cycle with ILU smoothing. block_jacobi: block Jacobi with "
+        "ILU on each process. Both ILU use the ilu fill level. auto: "
+        "block_jacobi in unsteady runs (A00 is then dominated by the time "
+        "derivative, and AMG barely coarsens it), amg in steady runs (the mass "
+        "variant).");
+      prm.declare_entry("reuse",
+                        "false",
+                        Patterns::Bool(),
+                        "For the direct_mumps method: keep the MUMPS solver "
+                        "between solves, to reuse the symbolic factorization "
+                        "while the sparsity pattern does not change. The "
+                        "numeric factorization is redone at each solve.");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.leave_subsection();
     }
     prm.leave_subsection();
+  }
+
+  void LinearSolver::print(ConditionalOStream &out) const
+  {
+    const auto print_field = [&](const std::string &name, const auto &value) {
+      out << std::setw(31) << name << ": " << value << std::endl;
+    };
+
+    out << "Linear solver:" << std::endl;
+    print_field("method", method_name);
+    if (method == Method::direct_mumps)
+    {
+      print_field("reuse", reuse ? "true" : "false");
+      return;
+    }
+    print_field("preconditioner", preconditioner_name);
+    if (preconditioner == PreconditionerType::fieldsplit_schur_cc)
+      print_field("velocity block preconditioner",
+                  velocity_block_preconditioner_name);
+    print_field("ilu fill level", ilu_fill_level);
+    print_field("absolute tolerance", absolute_tolerance);
+    print_field("relative tolerance", relative_tolerance);
+    print_field("max iterations", max_iterations);
+    print_field("max krylov vectors", max_krylov_vectors);
+    print_field("right preconditioning",
+                right_preconditioning ? "true" : "false");
   }
 
   void LinearSolver::read_parameters(ParameterHandler  &prm,
@@ -1296,6 +1356,7 @@ namespace Parameters
       prm.enter_subsection(solver_type);
       {
         const std::string parsed_method = prm.get("method");
+        method_name                     = parsed_method;
         if (parsed_method == "direct_mumps")
           method = Method::direct_mumps;
         else if (parsed_method == "cg")
@@ -1304,6 +1365,7 @@ namespace Parameters
           method = Method::gmres;
 
         const std::string parsed_prec = prm.get("preconditioner");
+        preconditioner_name           = parsed_prec;
         if (parsed_prec == "none")
           preconditioner = PreconditionerType::none;
         else if (parsed_prec == "ilu")
@@ -1312,6 +1374,8 @@ namespace Parameters
           preconditioner = PreconditionerType::block_jacobi;
         else if (parsed_prec == "amg")
           preconditioner = PreconditionerType::amg;
+        else if (parsed_prec == "fieldsplit_schur_cc")
+          preconditioner = PreconditionerType::fieldsplit_schur_cc;
         else
           AssertThrow(false,
                       ExcMessage("Unknown preconditioner type: " +
@@ -1323,7 +1387,25 @@ namespace Parameters
         max_krylov_vectors    = prm.get_integer("max krylov vectors");
         right_preconditioning = prm.get_bool("right preconditioning");
         ilu_fill_level        = prm.get_integer("ilu fill level");
-        reuse                 = prm.get_bool("reuse");
+
+        const std::string parsed_velocity_prec =
+          prm.get("velocity block preconditioner");
+        velocity_block_preconditioner_name = parsed_velocity_prec;
+        if (parsed_velocity_prec == "auto")
+          velocity_block_preconditioner =
+            VelocityBlockPreconditioner::automatic;
+        else if (parsed_velocity_prec == "amg")
+          velocity_block_preconditioner = VelocityBlockPreconditioner::amg;
+        else if (parsed_velocity_prec == "amg_ilu")
+          velocity_block_preconditioner = VelocityBlockPreconditioner::amg_ilu;
+        else if (parsed_velocity_prec == "block_jacobi")
+          velocity_block_preconditioner =
+            VelocityBlockPreconditioner::block_jacobi;
+        else
+          AssertThrow(false,
+                      ExcMessage("Unknown velocity block preconditioner: " +
+                                 parsed_velocity_prec));
+        reuse = prm.get_bool("reuse");
         READ_VERBOSITY_PARAM(prm, verbosity)
       }
       prm.leave_subsection();

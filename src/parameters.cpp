@@ -1257,7 +1257,8 @@ namespace Parameters
       prm.declare_entry("preconditioner",
                         "none",
                         Patterns::Selection(
-                          "none|ilu|block_jacobi|amg|fieldsplit_schur_cc"),
+                          "none|ilu|block_jacobi|amg|fieldsplit_schur_lsc|"
+                          "fieldsplit_schur_cc"),
                         "Method");
       prm.declare_entry("absolute tolerance",
                         "1e-12",
@@ -1295,20 +1296,24 @@ namespace Parameters
                         Patterns::Integer(),
                         "Max level of fill-in for ILU preconditioner. Also "
                         "used for the ILU of the velocity block preconditioner "
-                        "(amg_ilu and block_jacobi) of the fieldsplit_schur_cc "
-                        "preconditioner.");
+                        "(amg_ilu and block_jacobi) of the fieldsplit_schur "
+                        "preconditioners.");
       prm.declare_entry(
         "velocity block preconditioner",
         "auto",
         Patterns::Selection("auto|amg|amg_ilu|block_jacobi"),
-        "For the fieldsplit_schur_cc preconditioner, preconditioner of the "
+        "For the fieldsplit_schur preconditioners, preconditioner of the "
         "velocity block A00, applied once per outer iteration. amg: one "
         "BoomerAMG V-cycle with hypre's default smoother. amg_ilu: one "
         "BoomerAMG V-cycle with ILU smoothing. block_jacobi: block Jacobi with "
         "ILU on each process. Both ILU use the ilu fill level. auto: "
-        "block_jacobi in unsteady runs (A00 is then dominated by the time "
-        "derivative, and AMG barely coarsens it), amg in steady runs (the mass "
-        "variant).");
+        "block_jacobi for fieldsplit_schur_cc in unsteady runs (A00 is then "
+        "dominated by the time derivative, and AMG barely coarsens it), "
+        "amg_ilu for fieldsplit_schur_lsc (A00 with convection), amg "
+        "otherwise, including fieldsplit_schur_cc in steady runs (the mass "
+        "variant). With fieldsplit_schur_lsc at high cell Peclet numbers "
+        "|u| h / nu, the AMG V-cycle diverges on A00: use block_jacobi with "
+        "an ilu fill level of at least 1.");
       prm.declare_entry("reuse",
                         "false",
                         Patterns::Bool(),
@@ -1336,7 +1341,8 @@ namespace Parameters
       return;
     }
     print_field("preconditioner", preconditioner_name);
-    if (preconditioner == PreconditionerType::fieldsplit_schur_cc)
+    if (preconditioner == PreconditionerType::fieldsplit_schur_lsc ||
+        preconditioner == PreconditionerType::fieldsplit_schur_cc)
       print_field("velocity block preconditioner",
                   velocity_block_preconditioner_name);
     print_field("ilu fill level", ilu_fill_level);
@@ -1374,6 +1380,8 @@ namespace Parameters
           preconditioner = PreconditionerType::block_jacobi;
         else if (parsed_prec == "amg")
           preconditioner = PreconditionerType::amg;
+        else if (parsed_prec == "fieldsplit_schur_lsc")
+          preconditioner = PreconditionerType::fieldsplit_schur_lsc;
         else if (parsed_prec == "fieldsplit_schur_cc")
           preconditioner = PreconditionerType::fieldsplit_schur_cc;
         else

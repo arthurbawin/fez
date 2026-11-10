@@ -24,6 +24,30 @@ namespace PETScWrappers
   namespace
   {
     /**
+     * Create the diagonal matrix (AIJ, preallocated) with entries
+     * @p diagonal. The caller is responsible for destroying it.
+     */
+    Mat create_diagonal_matrix(const Vec diagonal)
+    {
+      PetscInt n;
+      AssertPETSc(VecGetLocalSize(diagonal, &n));
+      Mat D;
+      AssertPETSc(
+        MatCreateAIJ(PetscObjectComm(reinterpret_cast<PetscObject>(diagonal)),
+                     n,
+                     n,
+                     PETSC_DETERMINE,
+                     PETSC_DETERMINE,
+                     1,
+                     nullptr,
+                     0,
+                     nullptr,
+                     &D));
+      AssertPETSc(MatDiagonalSet(D, diagonal, INSERT_VALUES));
+      return D;
+    }
+
+    /**
      * Create the matrix L = A10 D^{-1} A01, where D is the diagonal matrix
      * with entries @p velocity_diagonal (on the velocity dofs, zero entries
      * are skipped), with a nonzero diagonal added on its empty rows. The
@@ -75,19 +99,7 @@ namespace PETScWrappers
       // by one (e.g., with MatDiagonalSet()) would reallocate L for each row.
       // Add a preallocated diagonal matrix instead: MatAXPY() then rebuilds L
       // once, with the merged sparsity pattern.
-      Mat fill;
-      AssertPETSc(
-        MatCreateAIJ(PetscObjectComm(reinterpret_cast<PetscObject>(L)),
-                     n,
-                     n,
-                     PETSC_DETERMINE,
-                     PETSC_DETERMINE,
-                     1,
-                     nullptr,
-                     0,
-                     nullptr,
-                     &fill));
-      AssertPETSc(MatDiagonalSet(fill, diagonal, INSERT_VALUES));
+      Mat fill = create_diagonal_matrix(diagonal);
       AssertPETSc(MatAXPY(L, 1., fill, DIFFERENT_NONZERO_PATTERN));
       AssertPETSc(MatDestroy(&fill));
 
@@ -96,6 +108,26 @@ namespace PETScWrappers
       AssertPETSc(MatDestroy(&A01));
       AssertPETSc(MatDestroy(&A10));
       return L;
+    }
+
+    /**
+     * Create the matrices of the LSC preconditioner: the diagonal matrix Q,
+     * given by the velocity entries of @p velocity_mass_diagonal (see
+     * AdditionalData), and L = A10 Q^{-1} A01. The caller is responsible for
+     * destroying both.
+     */
+    void create_lsc_matrices(const Mat A,
+                             const IS  is_u,
+                             const IS  is_p,
+                             const Vec velocity_mass_diagonal,
+                             Mat      &L,
+                             Mat      &Q)
+    {
+      Vec diagonal;
+      AssertPETSc(VecGetSubVector(velocity_mass_diagonal, is_u, &diagonal));
+      L = create_scaled_product(A, is_u, is_p, diagonal);
+      Q = create_diagonal_matrix(diagonal);
+      AssertPETSc(VecRestoreSubVector(velocity_mass_diagonal, is_u, &diagonal));
     }
 
     /**
@@ -118,6 +150,36 @@ namespace PETScWrappers
       AssertPETSc(MatScale(L, -1.));
       return L;
     }
+
+    /**
+     * Attach the entries @p is_p of @p null_vector (system size, normalized,
+     * zero outside the pressure dofs, so that its pressure part is normalized
+     * too) to the pressure matrix @p L, as the null space of L and of its
+     * transpose (L is symmetric).
+     */
+    void attach_null_space(const Mat L, const Vec null_vector, const IS is_p)
+    {
+      // Copy the pressure entries, as the subvector may share the memory of
+      // the full vector, while the null space keeps a reference to it
+      Vec sub_vector, pressure_vector;
+      AssertPETSc(VecGetSubVector(null_vector, is_p, &sub_vector));
+      AssertPETSc(VecDuplicate(sub_vector, &pressure_vector));
+      AssertPETSc(VecCopy(sub_vector, pressure_vector));
+      AssertPETSc(VecRestoreSubVector(null_vector, is_p, &sub_vector));
+
+      MatNullSpace null_space;
+      AssertPETSc(
+        MatNullSpaceCreate(PetscObjectComm(reinterpret_cast<PetscObject>(L)),
+                           PETSC_FALSE,
+                           1,
+                           &pressure_vector,
+                           &null_space));
+      AssertPETSc(MatSetNullSpace(L, null_space));
+      AssertPETSc(MatSetTransposeNullSpace(L, null_space));
+      // The null space references the vector, and L references the null space
+      AssertPETSc(VecDestroy(&pressure_vector));
+      AssertPETSc(MatNullSpaceDestroy(&null_space));
+    }
   } // namespace
 
   PreconditionFieldSplitSchur::PreconditionFieldSplitSchur(
@@ -136,9 +198,10 @@ namespace PETScWrappers
     // PCFieldSplitSetSchurPre() is silently ignored for other types
     AssertPETSc(PCFieldSplitSetType(pc, PC_COMPOSITE_SCHUR));
 
+    const bool use_lsc = data.schur_approximation == SchurApproximation::lsc;
     const bool use_cc =
       data.schur_approximation == SchurApproximation::cahouet_chabard;
-    AssertThrow(data.scaled_pressure_mass_matrix != nullptr,
+    AssertThrow(use_lsc || data.scaled_pressure_mass_matrix != nullptr,
                 ExcMessage("The mass and Cahouet-Chabard approximations of "
                            "the Schur complement require the scaled pressure "
                            "mass matrix."));
@@ -146,6 +209,16 @@ namespace PETScWrappers
                 ExcMessage("The Cahouet-Chabard approximation of the Schur "
                            "complement requires the diagonal of the time "
                            "derivative term of the velocity block."));
+    AssertThrow(!use_lsc || data.velocity_mass_diagonal != nullptr,
+                ExcMessage("The LSC approximation of the Schur complement "
+                           "requires the diagonal of the velocity mass "
+                           "matrix."));
+#if DEAL_II_PETSC_VERSION_LT(3, 20, 0)
+    // Earlier versions ignore LSC_Qscale, and scale by the diagonal of A00
+    AssertThrow(!use_lsc,
+                ExcMessage("PETSc 3.20 onward is required to use the LSC "
+                           "approximation of the Schur complement."));
+#endif
     // User matrix preconditioning S (mass variants) and Laplacian part of the
     // Cahouet-Chabard preconditioner
     Mat schur_pre    = nullptr;
@@ -156,24 +229,64 @@ namespace PETScWrappers
     AssertPETSc(PCFieldSplitSetIS(pc, "u", is_u));
     AssertPETSc(PCFieldSplitSetIS(pc, "p", is_p));
 
-    // Extract the pressure rows and columns, in the same ordering as the
-    // pressure field of the PC, and use them to precondition S.
-    AssertPETSc(MatCreateSubMatrix(static_cast<const Mat &>(
-                                     *data.scaled_pressure_mass_matrix),
-                                   is_p,
-                                   is_p,
-                                   MAT_INITIAL_MATRIX,
-                                   &schur_pre));
-    AssertPETSc(
-      PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
-    // With Cahouet-Chabard, both parts are kept until they are given to the
-    // composite preconditioner of S, below
-    if (use_cc)
-      cc_laplacian = create_cc_laplacian(static_cast<const Mat &>(matrix),
-                                         is_u,
-                                         is_p,
-                                         static_cast<const Vec &>(
-                                           *data.time_derivative_diagonal));
+    if (use_lsc)
+    {
+      // LSC uses the Schur complement itself for the blocks, and looks for the
+      // matrices "LSC_L", "LSC_Lp" and "LSC_Qscale" composed with the matrix
+      // preconditioning the Schur complement, which is then only used to carry
+      // them. With -pc_lsc_scale_diag, the diagonal of Qscale is the scaling
+      // Q (see the class documentation), instead of the diagonal of A00.
+      Mat L, Q;
+      create_lsc_matrices(static_cast<const Mat &>(matrix),
+                          is_u,
+                          is_p,
+                          static_cast<const Vec &>(
+                            *data.velocity_mass_diagonal),
+                          L,
+                          Q);
+      // Without pinned pressure dof, L is singular: give it the constant
+      // pressure mode as null space, see the documentation of the constructor
+      if (data.pressure_null_vector != nullptr)
+        attach_null_space(L,
+                          static_cast<const Vec &>(*data.pressure_null_vector),
+                          is_p);
+      AssertPETSc(MatDuplicate(L, MAT_COPY_VALUES, &schur_pre));
+      AssertPETSc(PetscObjectCompose(reinterpret_cast<PetscObject>(schur_pre),
+                                     "LSC_L",
+                                     reinterpret_cast<PetscObject>(L)));
+      AssertPETSc(PetscObjectCompose(reinterpret_cast<PetscObject>(schur_pre),
+                                     "LSC_Lp",
+                                     reinterpret_cast<PetscObject>(L)));
+      AssertPETSc(PetscObjectCompose(reinterpret_cast<PetscObject>(schur_pre),
+                                     "LSC_Qscale",
+                                     reinterpret_cast<PetscObject>(Q)));
+      AssertPETSc(
+        PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
+      // schur_pre holds its own references to L and Q
+      AssertPETSc(MatDestroy(&L));
+      AssertPETSc(MatDestroy(&Q));
+    }
+    else
+    {
+      // Extract the pressure rows and columns, in the same ordering as the
+      // pressure field of the PC, and use them to precondition S.
+      AssertPETSc(MatCreateSubMatrix(static_cast<const Mat &>(
+                                       *data.scaled_pressure_mass_matrix),
+                                     is_p,
+                                     is_p,
+                                     MAT_INITIAL_MATRIX,
+                                     &schur_pre));
+      AssertPETSc(
+        PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
+      // With Cahouet-Chabard, both parts are kept until they are given to
+      // the composite preconditioner of S, below
+      if (use_cc)
+        cc_laplacian = create_cc_laplacian(static_cast<const Mat &>(matrix),
+                                           is_u,
+                                           is_p,
+                                           static_cast<const Vec &>(
+                                             *data.time_derivative_diagonal));
+    }
     // The PC holds its own reference to the index sets
     AssertPETSc(ISDestroy(&is_u));
     AssertPETSc(ISDestroy(&is_p));
@@ -195,25 +308,37 @@ namespace PETScWrappers
     // minimized over the cells: block Jacobi with ILU becomes too weak when
     // A00 is dominated by viscosity in some cells (r below about 0.1, e.g. at
     // low Reynolds numbers or with local refinement), where AMG is needed.
+    // TODO: with LSC, choose between amg_ilu and block_jacobi (with at least
+    // ILU(1)) from the cell Peclet number |u| h / nu: the BoomerAMG V-cycle
+    // diverges on the convection-dominated A00 at high cell Peclet numbers
+    // (about 3 to 80 in mms_2d_all_dirichlet_lsc, where ILU is better), while
+    // it is the more robust choice at moderate ones (about 0.2 to 10 in
+    // flow_around_cylinder_2d_amr_lsc, also in parallel).
     VelocityPreconditioner u_preconditioner = data.velocity_preconditioner;
 #if DEAL_II_PETSC_VERSION_LT(3, 22, 0)
     // BoomerAMG with ILU smoothing requires PETSc 3.22 onward
     AssertThrow(u_preconditioner != VelocityPreconditioner::amg_ilu,
                 ExcMessage("PETSc 3.22 onward is required to use BoomerAMG "
                            "with ILU smoother (amg_ilu)"));
+    const VelocityPreconditioner lsc_u_preconditioner =
+      VelocityPreconditioner::amg;
+#else
+    const VelocityPreconditioner lsc_u_preconditioner =
+      VelocityPreconditioner::amg_ilu;
 #endif
     if (u_preconditioner == VelocityPreconditioner::automatic)
-      u_preconditioner = use_cc ? VelocityPreconditioner::block_jacobi :
-                                  VelocityPreconditioner::amg;
+      u_preconditioner = use_cc  ? VelocityPreconditioner::block_jacobi :
+                         use_lsc ? lsc_u_preconditioner :
+                                   VelocityPreconditioner::amg;
 
 #if !defined(DEAL_II_PETSC_WITH_HYPRE)
-    // BoomerAMG is used for the velocity block (amg, amg_ilu) and for the
-    // Laplacian part of Cahouet-Chabard
+    // BoomerAMG is used for the velocity block (amg, amg_ilu), for the solve
+    // with L of LSC, and for the Laplacian part of Cahouet-Chabard
     AssertThrow(u_preconditioner == VelocityPreconditioner::block_jacobi &&
-                  !use_cc,
+                  !use_lsc && !use_cc,
                 ExcMessage("PETSc must be configured with hypre to use "
                            "BoomerAMG, which is required for the amg and "
-                           "amg_ilu velocity preconditioners and "
+                           "amg_ilu velocity preconditioners, LSC and "
                            "Cahouet-Chabard. Without hypre, only the mass "
                            "approximation of the Schur complement with the "
                            "block_jacobi velocity preconditioner is "
@@ -225,16 +350,18 @@ namespace PETScWrappers
     // Without pinned pressure dof, the pressure Laplacian-like matrices are
     // singular: avoid the direct solve of BoomerAMG on the coarsest level
     auto set_coarse_smoother = [&](const std::string &amg_prefix) {
-      if (data.pressure_null_space)
+      if (data.pressure_null_vector != nullptr)
         set_default(amg_prefix + "pc_hypre_boomeramg_relax_type_coarse",
                     "symmetric-SOR/Jacobi");
     };
 
-    // One application of the inner preconditioner for A00 and S
+    // One application of the inner preconditioner for A00 and S (with LSC,
+    // with a change of sign, see below)
     const std::string u_prefix = "-fez_fs_fieldsplit_u_";
     const std::string p_prefix = "-fez_fs_fieldsplit_p_";
     set_default(u_prefix + "ksp_type", "preonly");
-    set_default(p_prefix + "ksp_type", "preonly");
+    if (!use_lsc)
+      set_default(p_prefix + "ksp_type", "preonly");
 
     // Velocity block A00, see above
     if (u_preconditioner == VelocityPreconditioner::block_jacobi)
@@ -260,7 +387,32 @@ namespace PETScWrappers
     }
 
     // Schur complement S
-    if (use_cc)
+    if (use_lsc)
+    {
+      // Least-squares commutator, with AMG for the solve with L and the
+      // scaling by Q = diag(Mu), the diagonal of the composed LSC_Qscale (with
+      // which L is built, so the scaling must not be disabled)
+      set_default(p_prefix + "pc_type", "lsc");
+      set_default(p_prefix + "pc_lsc_scale_diag", "true");
+      set_default(p_prefix + "lsc_ksp_type", "preonly");
+      set_default(p_prefix + "lsc_pc_type", "hypre");
+      set_default(p_prefix + "lsc_pc_hypre_type", "boomeramg");
+      set_coarse_smoother(p_prefix + "lsc_");
+
+      // PCLSC approximates (A10 A00^{-1} A01)^{-1} = -S^{-1}: its formula
+      // does not include the minus sign of S, whatever the sign convention of
+      // A01 and A10, and the sign cannot be changed through L or Q, which
+      // each appear twice. With the wrong sign, the eigenvalues of the
+      // preconditioned Schur block cluster around -1 instead of 1, and GMRES
+      // needs up to twice as many iterations. The sign is changed by a single
+      // Richardson step from a zero initial guess, scaled by -1, without
+      // residual norm: the cost is that of one LSC application.
+      set_default(p_prefix + "ksp_type", "richardson");
+      set_default(p_prefix + "ksp_richardson_scale", "-1");
+      set_default(p_prefix + "ksp_max_it", "1");
+      set_default(p_prefix + "ksp_norm_type", "none");
+    }
+    else if (use_cc)
     {
       // Sum of the approximate inverses of -Mp/nu (sub_0, block Jacobi with
       // ILU(0) as in the mass variant) and -A10 D^{-1} A01 (sub_1, AMG).

@@ -1,0 +1,151 @@
+#
+# Least-squares commutator field split preconditioner (fieldsplit_schur_lsc)
+# in a steady problem at a moderate Reynolds number, Re = max|u| L / nu ~ 160
+# (max|u| = pi, L = 1, nu = 0.02). Taylor-Hood P2-P1, velocity prescribed on
+# the whole boundary, constant pressure mode handled as a null space: the
+# matrix L of LSC is then singular, and its BoomerAMG uses a smoother on the
+# coarsest level. Block Jacobi with ILU(1) on the velocity block (see below).
+# The exact velocity derives from the stream function sin^2(pi x) sin^2(pi y),
+# and vanishes on the boundary.
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set verbosity = quiet
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-8
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity          = quiet
+    set method             = gmres
+    set preconditioner     = fieldsplit_schur_lsc
+
+    # Block Jacobi with ILU(1) on the velocity block: at the cell Peclet
+    # numbers |u| h / nu of this test (about 3 to 80), the BoomerAMG V-cycle
+    # of amg_ilu (the default with LSC) diverges on the convection-dominated
+    # velocity block. Applied once, it still preconditions, but the true
+    # residual of GMRES stalls far above the tolerance; with more accurate
+    # variants (ILU(1) smoothing, several cycles), Newton diverges. Block
+    # Jacobi with ILU(0) is too weak.
+    set velocity block preconditioner = block_jacobi
+    set ilu fill level                = 1
+
+    # Tight tolerance: the errors match those of a direct solve
+    set relative tolerance = 1e-10
+    set absolute tolerance = 1e-14
+
+    # Regression bound on the GMRES iterations of every solve (about twice the
+    # observed maximum): if exceeded, a "GMRES did not converge" warning is
+    # printed and the output comparison fails. Exact counts are not compared,
+    # as they may differ slightly across platforms.
+    set max iterations     = 250
+    set max krylov vectors = 250
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree = 2
+  set Pressure degree = 1
+end
+
+subsection Stabilization
+  set enable supg = false
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.02
+  end
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant      = false
+  set enforce zero mean pressure = false
+
+  # The constant pressure is given to GMRES as null space
+  set pressure null space        = true
+
+  subsection boundary 0
+    set id   = 1
+    set name = x_min
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x_max
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y_min
+    set type = velocity_mms
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = velocity_mms
+  end
+end
+
+subsection Exact solution
+  # Divergence-free velocity field
+  subsection exact velocity
+    set Function expression = pi*sin(pi*x)^2*sin(2*pi*y); -pi*sin(2*pi*x)*sin(pi*y)^2
+  end
+  subsection exact pressure
+    set Function expression = cos(pi*x)*cos(pi*y)
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+
+  # The discrete pressure has zero mean
+  set subtract mean pressure = true
+
+  set type              = space
+  set convergence steps = 2
+
+  subsection Space convergence
+    set use dealii cube mesh = true
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+
+  subsection Time convergence
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set time step reduction = 0.5
+  end
+end

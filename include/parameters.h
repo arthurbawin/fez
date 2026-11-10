@@ -678,9 +678,11 @@ namespace Parameters
       ilu,
       block_jacobi,
       amg,
-      // Block Schur complement (with S = -A10 A00^{-1} A01) preconditioner
-      // implemented using PETSc's PCFIELDSPLIT, with S approximated with the
-      // Cahouet-Chabard (CC) preconditioner
+      // Block Schur complement (with S = -A10 A00^{-1} A01) preconditioners
+      // implemented using PETSc's PCFIELDSPLIT:
+      // S approximated with the least-squares commutator (LSC)
+      fieldsplit_schur_lsc,
+      // S approximated with the Cahouet-Chabard (CC) preconditioner
       fieldsplit_schur_cc
     } preconditioner;
 
@@ -700,14 +702,15 @@ namespace Parameters
     bool right_preconditioning;
 
     // Fill-in levels for ILU preconditioner/smoother, also used for the ILU in
-    // the velocity block preconditioner of the field split preconditioner
+    // the velocity block preconditioner of the field split preconditioners
     unsigned int ilu_fill_level;
 
     // Preconditioner of the velocity block A00 for the field split Schur
-    // preconditioner.
+    // preconditioners.
     enum class VelocityBlockPreconditioner
     {
-      // automatic choice: block_jacobi in unsteady runs, amg in steady runs.
+      // automatic choice: block_jacobi for fieldsplit_schur_cc in unsteady
+      // runs, amg_ilu for fieldsplit_schur_lsc, amg otherwise.
       automatic,
       amg,
       amg_ilu,
@@ -744,8 +747,7 @@ namespace Parameters
 
     /**
      * Whether an iterative method is used with the given preconditioner: the
-     * monolithic AMG, the Cahouet-Chabard block Schur preconditioner (the only
-     * field split preconditioner).
+     * monolithic AMG, the Cahouet-Chabard or LSC block Schur preconditioner.
      */
     bool use_amg() const
     {
@@ -756,7 +758,12 @@ namespace Parameters
       return is_iterative() &&
              preconditioner == PreconditionerType::fieldsplit_schur_cc;
     }
-    bool use_fieldsplit() const { return use_cc(); }
+    bool use_lsc() const
+    {
+      return is_iterative() &&
+             preconditioner == PreconditionerType::fieldsplit_schur_lsc;
+    }
+    bool use_fieldsplit() const { return use_cc() || use_lsc(); }
   };
 
   struct TimeIntegration

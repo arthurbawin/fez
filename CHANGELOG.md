@@ -7,11 +7,12 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ## [0.0.0] 2026-11-08
 
 ### Added
-Added a block Schur complement preconditioner for the GMRES solves of the nonstabilized incompressible NS solver, through PETSc's PCFIELDSPLIT with an upper triangular block factorization [#114](https://github.com/arthurbawin/fez/pull/114):
+Added block Schur complement preconditioners for the GMRES solves of the nonstabilized incompressible NS solver, through PETSc's PCFIELDSPLIT with an upper triangular block factorization [#114](https://github.com/arthurbawin/fez/pull/114):
  - "fieldsplit_schur_cc": Cahouet-Chabard approximation of the Schur complement, S^-1 ≈ (-Mp/nu)^-1 + (-A10 (c0 diag(Mu))^-1 A01)^-1, for unsteady problems. Steady problems use the mass approximation S^-1 ≈ (-Mp/nu)^-1.
+ - "fieldsplit_schur_lsc": least-squares commutator, which accounts for convection, for steady problems at higher Reynolds numbers.
  - The velocity block is preconditioned as chosen by the new "velocity block preconditioner" parameter (auto, amg, amg_ilu or block_jacobi), with the "ilu fill level" for the ILU.
- - All the PETSc options of this preconditioner are prefixed with "fez_fs_", and can be overridden from the command line.
- - It requires "enable supg = false", and hypre's BoomerAMG (except for the mass approximation with the block_jacobi velocity preconditioner). amg_ilu requires PETSc 3.22 or higher.
+ - All the PETSc options of these preconditioners are prefixed with "fez_fs_", and can be overridden from the command line.
+ - They require "enable supg = false", and hypre's BoomerAMG (except for the mass approximation with the block_jacobi velocity preconditioner). amg_ilu requires PETSc 3.22 or higher.
  - Added tests for the fieldsplit_schur_cc preconditioner: 2D unsteady and 3D steady manufactured solutions with "pressure null space", a 2D steady manufactured solution with open boundaries, and an unsteady flow around a cylinder with adaptive mesh refinement.
 
 Added the "pressure null space" parameter (Fluid boundary conditions), for flows with the normal velocity prescribed on the whole boundary, solved with an iterative linear solver: the pressure constant is left undetermined, the constant pressure mode is given to PETSc as the null space of the system matrix and of its transpose, the Newton residual is projected onto the range of the Jacobian matrix before its norm is computed, and the mean pressure is set to zero after each nonlinear solve. [#114](https://github.com/arthurbawin/fez/pull/114)

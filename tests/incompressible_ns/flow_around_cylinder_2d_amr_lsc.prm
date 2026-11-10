@@ -1,0 +1,140 @@
+#
+# Least-squares commutator field split preconditioner (fieldsplit_schur_lsc)
+# on the steady flow around a cylinder of flow_around_cylinder_2d_amr, with
+# Taylor-Hood Q2-Q1 elements, at Re = 20 (nu = 0.05), with four mesh
+# adaptations. AMG with ILU smoothing on the velocity block (default with
+# LSC), suited to the moderate cell Peclet numbers of this mesh. Covers an
+# outflow boundary (no pressure null space), a graded mesh with hanging nodes
+# after adaptation (constrained pressure dofs with empty rows in L) and the
+# rebuild of the preconditioner at each Newton iteration and after each mesh
+# change. On the first four meshes, the Newton residuals match those of
+# flow_around_cylinder_2d_amr.with_p4est=true.mpirun=4.output.
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+
+  set dealii preset mesh     = uniform channel with cylinder
+  set dealii mesh parameters = 5, 15, 5, 5 : 1 : 1 : 0.75 : 2 : 2. : true : true
+  set refinement level       = 0
+
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+    set strategy  = local refinement
+
+    subsection Local refinement
+      set variables for adaptation          = velocity
+      set number of steady adaptation steps = 10
+      set refinement strategy               = fixed number
+      set fraction to refine                = 0.3
+      set fraction to coarsen               = 0.3
+    end
+  end
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-6
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = verbose
+    set method         = gmres
+    set preconditioner = fieldsplit_schur_lsc
+
+    #set velocity block preconditioner = block_jacobi
+    #set ilu fill level = 2
+
+    # Tight tolerance: the solution matches that of a direct solve
+    set relative tolerance = 1e-10
+    set absolute tolerance = 1e-14
+
+    # Regression bound on the GMRES iterations of every solve (about twice the
+    # observed maximum): if exceeded, a "GMRES did not converge" warning is
+    # printed and the output comparison fails. Exact counts are not compared,
+    # as they may differ slightly across platforms.
+    set max iterations     = 250
+    set max krylov vectors = 250
+  end
+end
+
+subsection FiniteElements
+  set use quads       = true
+  set Velocity degree = 2
+  set Pressure degree = 1
+  set mapping degree  = isoparametric velocity
+end
+
+subsection Stabilization
+  set enable supg = false
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.02
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 5
+  subsection boundary 0
+    set id   = 0
+    set name = inlet
+    set type = input_function
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = outlet
+    set type = outflow
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = cylinder
+    set type = no_slip
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = bottom
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 4
+    set name = top
+    set type = slip
+  end
+end

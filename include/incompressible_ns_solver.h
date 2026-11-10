@@ -142,8 +142,9 @@ public:
   /**
    * Assemble the diagonal of the velocity mass matrix, diag(Mu), of
    * block_schur_data, used in the Laplacian part A10 (c0 diag(Mu))^{-1} A01
-   * of the Cahouet-Chabard block Schur preconditioner. Possible hanging nodes
-   * constraints are not applied to this diagonal.
+   * of the Cahouet-Chabard block Schur preconditioner, and as the scaling Q
+   * of the LSC preconditioner. Possible hanging nodes constraints are not
+   * applied to this diagonal, whose entries are all positive.
    */
   void assemble_velocity_mass_diagonal();
 
@@ -346,8 +347,9 @@ protected:
   std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
 
   /**
-   * Data for the block Schur preconditioner (fieldsplit_schur_cc), which only
-   * depend on the mesh, the constraints and the viscosity.
+   * Data for the block Schur preconditioners (fieldsplit_schur_cc and
+   * fieldsplit_schur_lsc), which only depend on the mesh, the constraints and
+   * the viscosity.
    */
   struct BlockSchurPreconditionerData
   {
@@ -360,9 +362,10 @@ protected:
     // matrix, but only its pressure rows and columns are filled.
     LA::ParMatrixType pressure_mass_matrix;
 
-    // Diagonal of the velocity mass matrix, diag(Mu), for unsteady problems:
-    // scaled by the leading BDF coefficient c0 at each preconditioner setup,
-    // it gives the diagonal of the time derivative term of the momentum block.
+    // Diagonal of the velocity mass matrix, diag(Mu). With Cahouet-Chabard
+    // (unsteady problems only), scaled by the leading BDF coefficient c0 at
+    // each preconditioner setup, it gives the diagonal of the time derivative
+    // term of the momentum block. With LSC, it is the scaling Q.
     LA::ParVectorType velocity_mass_diagonal;
 
     // Whether the matrices above were assembled since the last setup of the

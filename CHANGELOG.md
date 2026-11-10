@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-10
+
+### Added
+Added the energy-stable quasi-incompressible Cahn-Hilliard Navier-Stokes model (`set CHNS model = quasi_incompressible`), with mass-averaged velocity and the fully discrete scheme of Brunk & ten Eikelder (JCP 548, 2026): BDF1 with a discrete energy identity, and a BDF2 variant. The mobility is constant or degenerate, M = m0 eps^2 |1 - phi^2|. New `chns conservation`, `chns energy` and `chns phase energy` postprocessing tables, kept across checkpoint/restart. See examples/incompressible_chns/quasi_incompressible/README.md. [#TBD](https://github.com/arthurbawin/fez/pull/TBD)
+
+Added the "pressure reference point" parameter, to choose the pressure DoF pinned by "fix pressure constant".
+
+### Fixed
+- The zero-mean pressure constraint no longer selects a pivot with a vanishing integration weight (P2 vertex functions on affine triangles), and keeps its pivot when the weights are rebuilt.
+- Restarting a BDF2 run during its BDF1 startup keeps the accepted time step history; unused BDF coefficients are reset.
+- The output directory is created before writing a checkpoint.
+- The "mobility model" parameter of the Cahn Hilliard subsection is now parsed (it was never assigned).
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

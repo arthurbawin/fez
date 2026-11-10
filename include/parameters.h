@@ -835,7 +835,7 @@ namespace Parameters
      * - Abels: solenoidal velocity, Abels et al. (2012) diffusive inertia.
      * - QuasiIncompressible: mass-averaged velocity with the energy-stable
      *   Galerkin scheme of Brunk & ten Eikelder. See
-     *   examples/incompressible_chns/quasi_incompressible/equations.md.
+     *   examples/incompressible_chns/quasi_incompressible/README.md.
      */
     enum class CHNSModel
     {

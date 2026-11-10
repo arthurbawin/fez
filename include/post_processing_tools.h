@@ -70,7 +70,7 @@ namespace PostProcessingTools
    * energy identity. The kinetic energy uses the positive density extension
    * rho~, while the conserved mass and the gravitational energy use the
    * affine density rho. See
-   * examples/incompressible_chns/quasi_incompressible/equations.md.
+   * examples/incompressible_chns/quasi_incompressible/README.md.
    */
   struct CHNSIntegralData
   {

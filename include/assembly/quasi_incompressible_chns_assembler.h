@@ -51,7 +51,7 @@ namespace Assembly
      * F'(a, b) = (a + b)(a^2 + b^2 - 2)/4 is the exact divided difference of
      * F(s) = (s^2 - 1)^2/4. Testing with (v, p, mu, phi - phi^n) gives the
      * discrete energy identity documented in
-     * examples/incompressible_chns/quasi_incompressible/equations.md.
+     * examples/incompressible_chns/quasi_incompressible/README.md.
      *
      * The convective terms cancel for z = v, and the continuity row is the
      * opposite of the strong equation, to keep the usual symmetric Stokes

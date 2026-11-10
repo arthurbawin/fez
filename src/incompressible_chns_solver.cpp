@@ -897,7 +897,7 @@ void CHNSSolver<dim, with_moving_mesh>::write_quasi_incompressible_diagnostics(
          "bdf2_gradient_identity_residual\n";
   const double energy = data.total_energy();
   // E^{n+1} - E^n + dt (viscous + diffusive dissipation). For BDF1, this is
-  // minus the numerical dissipation, see equations.md.
+  // minus the numerical dissipation, see the quasi_incompressible README.
   const double defect =
     energy - sums[I::OldEnergy] +
     dt * (sums[I::ViscousDissipation] + sums[I::DiffusiveDissipation]);

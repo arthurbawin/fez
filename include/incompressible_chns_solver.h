@@ -23,7 +23,7 @@ using namespace dealii;
  * - quasi_incompressible: mass-averaged velocity and the energy-stable
  *   Galerkin scheme of Assembly::IncompressibleCHNS::EnergyStable, on a fixed
  *   mesh. The model and its discrete energy identity are documented in
- *   examples/incompressible_chns/quasi_incompressible/equations.md.
+ *   examples/incompressible_chns/quasi_incompressible/README.md.
  */
 template <int dim, bool with_moving_mesh = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>

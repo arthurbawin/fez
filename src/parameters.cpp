@@ -1614,7 +1614,7 @@ namespace Parameters
         "CHNS model. abels: solenoidal velocity with diffusive inertia. "
         "quasi_incompressible: mass-averaged velocity and the energy-stable "
         "Galerkin scheme documented in "
-        "examples/incompressible_chns/quasi_incompressible/equations.md.");
+        "examples/incompressible_chns/quasi_incompressible/README.md.");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate_absolute"),

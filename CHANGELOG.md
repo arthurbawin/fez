@@ -9,6 +9,11 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ### Added
 Added indentation tools for the parameters files (in tests/ and examples/), and updated pull request template accordingly. Indented all .prm files. [#116](https://github.com/arthurbawin/fez/pull/116)
 
+## [0.0.0] 2026-11-10
+
+### Fixed
+Newton line search now compares trial residuals with the residual before the search, acceptings finite steps satisfying sufficient decrease or the nonlinear tolerance, and restores the last accepted state if all trial steps fail.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

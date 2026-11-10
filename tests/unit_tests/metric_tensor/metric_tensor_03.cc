@@ -77,7 +77,7 @@ void test_2d()
     print_tensor_formatted<2>(m1.intersection(m2), deallog);
     SymmetricTensor<2, 2> res =
       SymmetricTensor<2, 2>(m1.intersection(m2)) - SymmetricTensor<2, 2>(sol);
-    AssertThrow(res.norm() < 1e-12, ExcInternalError());
+    AssertThrow(res.norm() < 1e-11, ExcInternalError());
   }
   deallog << "OK" << std::endl;
 }

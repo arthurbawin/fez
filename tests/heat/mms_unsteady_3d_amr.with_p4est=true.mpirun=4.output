@@ -1,0 +1,57 @@
+Number of MPI processes: 4
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 250
+ boundary indicators: 0(25 faces) 1(25 faces) 2(50 faces) 3(50 faces) 4(50 faces) 5(50 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+ID 4 -> z_min
+ID 5 -> z_max
+Number of degrees of freedom: 396
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 768
+Number of degrees of freedom: 1161
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2490
+Number of degrees of freedom: 3753
+
+Time step 1 - Advancing to t = 0.05.
+Newton iter.  0:          nonlinear residual = 2.40633116e+00
+Newton iter.  1:          nonlinear residual = 2.38757887e-11	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2490
+Number of degrees of freedom: 3753
+
+Time step 2 - Advancing to t = 1.00e-01.
+Newton iter.  0:          nonlinear residual = 1.77231706e-01
+Newton iter.  1:          nonlinear residual = 4.84784955e-11	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2490
+Number of degrees of freedom: 3753
+
+Time step 3 - Advancing to t = 1.50e-01.
+Newton iter.  0:          nonlinear residual = 5.35729165e-02
+Newton iter.  1:          nonlinear residual = 1.70697835e-11	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+L2_norm
+n_elm n_dof   dt        T       
+ 2490  3753 0.0500 8.3619e-02 - 
+
+Linfty_norm
+n_elm n_dof   dt        T       
+ 2490  3753 0.0500 1.7885e-01 - 
+
+H1_seminorm
+n_elm n_dof   dt        T       
+ 2490  3753 0.0500 2.7614e+00 -

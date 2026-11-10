@@ -17,21 +17,28 @@
 #include <deal.II/numerics/data_component_interpretation.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <parameter_reader.h>
 #include <parameters.h>
 #include <stabilization_utils.h>
 #include <time_handler.h>
+#include <types.h>
 
 #include <array>
 #include <limits>
 #include <memory>
+#include <type_traits>
 
-using namespace dealii;
+// Forward declaration
+template <int dim>
+class PostProcessingHandler;
 
 /**
  * Collection of utilities for post-processing.
  */
 namespace PostProcessingTools
 {
+  using namespace dealii;
+
   /** Physical energy components, integrated over a domain or a phase. */
   struct CHNSEnergyComponents
   {
@@ -184,6 +191,8 @@ namespace PostProcessingTools
   /**
    * Compute the hydrodynamic forces on the given boundary by evaluating the
    * integral of the stress tensor t(n) := sigma \cdot n on the boundary.
+   * @p pressure_scale converts the stored pressure to physical units.
+   * Only entries on this boundary in @p force_per_face are updated.
    */
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary(
@@ -194,6 +203,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      pressure_scale,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -209,6 +219,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      pressure_scale,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -237,6 +248,7 @@ namespace PostProcessingTools
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &lambda_extractor,
+    const double                      density,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
@@ -250,6 +262,7 @@ namespace PostProcessingTools
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &lambda_extractor,
+    const double                      density,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
@@ -429,6 +442,17 @@ namespace PostProcessingTools
     std::array<Tensor<1, dim>, n_phases> &phase_center_of_mass,
     std::array<Tensor<1, dim>, n_phases> &phase_average_velocity);
 
+  /**
+   * Compute the volume integral of the scalar or vector field selected by
+   * @p field_extractor.
+   */
+  template <int dim, typename VectorType, typename ExtractorType>
+  auto compute_field_integral(const DoFHandler<dim> &dof_handler,
+                              const Mapping<dim>    &mapping,
+                              const Quadrature<dim> &quadrature,
+                              const VectorType      &solution,
+                              const ExtractorType   &field_extractor);
+
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
@@ -553,6 +577,41 @@ void PostProcessingTools::add_dg0_data_field(DataOut<dim>            &data_out,
                            field.get_component_interpretation());
 }
 
+template <int dim, typename VectorType, typename ExtractorType>
+auto PostProcessingTools::compute_field_integral(
+  const DoFHandler<dim> &dof_handler,
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const ExtractorType   &field_extractor)
+{
+  static_assert(std::is_same_v<ExtractorType, FEValuesExtractors::Scalar> ||
+                  std::is_same_v<ExtractorType, FEValuesExtractors::Vector>,
+                "The field extractor must be scalar or vector-valued");
+
+  FEValues<dim> fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_values | update_JxW_values);
+  using ValueType =
+    typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
+  std::vector<ValueType> values(fe_values.n_quadrature_points);
+  ValueType              local_integral;
+  local_integral = 0;
+
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+    fe_values[field_extractor].get_function_values(solution, values);
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+      local_integral += values[q] * fe_values.JxW(q);
+  }
+
+  return Utilities::MPI::sum(local_integral,
+                             dof_handler.get_mpi_communicator());
+}
+
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const DoFHandler<dim>            &dof_handler,
@@ -562,6 +621,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      pressure_scale,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
@@ -607,8 +667,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              *
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
-            const auto &n           = -normals[q];
-            const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
+            const auto &n = -normals[q];
+            // Convert stored pressure using the solver's pressure scale.
+            const auto sigma_dot_n =
+              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -630,6 +692,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      pressure_scale,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
@@ -682,8 +745,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              *
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
-            const auto &n           = -normals[q];
-            const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
+            const auto &n = -normals[q];
+            // Convert stored pressure using the solver's pressure scale.
+            const auto sigma_dot_n =
+              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -705,12 +770,10 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &lambda_extractor,
+  const double                      density,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
-
-  for (auto &f : force_per_face)
-    f = 0;
 
   FEFaceValues<dim> fe_face_values(mapping,
                                    dof_handler.get_fe(),
@@ -735,8 +798,9 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
+            // Lambda is a force density divided by the fluid density.
             const Tensor<1, dim> increment =
-              lambda_values[q] * fe_face_values.JxW(q);
+              density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
             f -= increment;
           }
@@ -762,6 +826,7 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &lambda_extractor,
+  const double                      density,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
@@ -793,8 +858,9 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
+            // Lambda is a force density divided by the fluid density.
             const Tensor<1, dim> increment =
-              lambda_values[q] * fe_face_values.JxW(q);
+              density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
             f -= increment;
           }
@@ -917,7 +983,8 @@ void PostProcessingTools::set_slice_index_on_boundary(
     if (face->at_boundary() && face->boundary_id() == boundary_id)
     {
       const Point<dim> barry   = face->center();
-      unsigned int     i_slice = floor(barry[axis_id] / delta);
+      unsigned int     i_slice = static_cast<unsigned int>(
+        std::floor((barry[axis_id] - coord_min) / delta));
 
       // A point at coord_max will have i_slice = n_slices : decrement it
       if (i_slice == n_slices)

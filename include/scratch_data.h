@@ -209,6 +209,16 @@ namespace NavierStokesScratch
      */
     ScratchData(const ScratchData &other);
 
+    /**
+     * Control whether the stabilization parameters stay constant during reinit.
+     * When enabled, keep tau from the last reinit on the unperturbed cell;
+     * all other stabilization data are still updated.
+     */
+    void set_keep_tau_constant(const bool keep_constant)
+    {
+      keep_tau_constant = keep_constant;
+    }
+
   private:
     /**
      * Allocate the class vectors.
@@ -291,7 +301,7 @@ namespace NavierStokesScratch
         fe_values[velocity].get_function_hessians(current_solution,
                                                   present_velocity_hessians);
 
-        // Compute grad(div)
+        // Compute grad(div) from the hessians
         for (unsigned int q = 0; q < n_q_points; ++q)
         {
           present_velocity_grad_div[q] = Tensor<1, dim>();
@@ -395,7 +405,7 @@ namespace NavierStokesScratch
         // computed in reinit_cahn_hilliard, where the kinematic viscosity
         // (which depends on the density, and thus on the tracer) is known.
         if constexpr (!enable_cahn_hilliard)
-          if (enable_stabilization)
+          if (enable_stabilization && !keep_tau_constant)
           {
             // Compute stabilization parameter tau.
             // Mesh velocity has already been computed, so ALE velocity is well
@@ -711,7 +721,8 @@ namespace NavierStokesScratch
           trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
           div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
           grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
-          if (enable_stabilization || enable_branch_stabilization)
+          if (enable_stabilization || enable_tracer_stabilization ||
+              enable_branch_stabilization)
             hessian_phi_x_moving[q][k] =
               fe_values_moving[position].hessian(k, q);
         }
@@ -1072,8 +1083,14 @@ namespace NavierStokesScratch
                                                        psi_gradients);
         }
       if (enable_tracer_stabilization)
+      {
         fe_values_moving[potential].get_function_laplacians(
           current_solution, potential_laplacians);
+        if constexpr (enable_pseudo_solid)
+          // Mesh-position variations of the Laplacian need the full Hessian.
+          fe_values_moving[potential].get_function_hessians(current_solution,
+                                                            potential_hessians);
+      }
       if (enable_stepien_tracer_stabilization)
         fe_values_moving[tracer].get_function_laplacians(current_solution,
                                                          tracer_laplacians);
@@ -1184,7 +1201,7 @@ namespace NavierStokesScratch
             source_term_tracer[q];
         }
 
-        if (enable_stabilization)
+        if (enable_stabilization && !keep_tau_constant)
         {
           Assert(density[q] > 0.,
                  ExcMessage("The density must be strictly positive to compute "
@@ -1264,7 +1281,7 @@ namespace NavierStokesScratch
             }
         }
 
-        if (enable_tracer_stabilization)
+        if (enable_tracer_stabilization && !keep_tau_constant)
         {
           /**
            * Characteristic diffusivity of the phase equation. After dividing
@@ -1299,7 +1316,7 @@ namespace NavierStokesScratch
         // Same quantities for the stabilization of this branch. Computed here,
         // after the loop over the dofs, because the shape function gradients
         // used for the streamline length are filled in that loop.
-        if (enable_branch_stabilization)
+        if (enable_branch_stabilization && !keep_tau_constant)
         {
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
@@ -1462,6 +1479,8 @@ namespace NavierStokesScratch
     const ParameterReader<dim> &param;
     const bool                  use_quads;
     const ComponentOrdering     ordering;
+
+    bool keep_tau_constant = false;
 
     unsigned int n_components;
     unsigned int u_lower;
@@ -1798,9 +1817,9 @@ namespace NavierStokesScratch
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
     std::vector<double>         potential_laplacians;
-
-    // Only filled when enable_branch_stabilization is set; consumed by
-    // Assembly::assemble_chns_{matrix,rhs}_stabilization.
+    // Filled for the moving-mesh x-variation of the tracer SUPG residual, and
+    // when enable_branch_stabilization is set (consumed by
+    // Assembly::assemble_chns_{matrix,rhs}_stabilization).
     std::vector<Tensor<2, dim>> potential_hessians;
     std::vector<double>         strong_residual_tracer;
     std::vector<double>         stabilization_nu_eff;

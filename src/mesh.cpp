@@ -1,6 +1,7 @@
 
 #include <boundary_conditions.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/patterns.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
@@ -289,34 +290,88 @@ namespace MeshTools
 
     tria.refine_global(refinement);
 
-    // Colorize = true starts counting boundary ids at zero, but physical
-    // entities in Gmsh must have a strictly postiive tag. To be able to check
-    // the entities in Gmsh, increases the boundary ids by 1.
-    for (auto &cell : tria.active_cell_iterators())
-      if (cell->at_boundary())
-        for (auto &face : cell->face_iterators())
-          if (face->at_boundary())
-            face->set_boundary_id(face->boundary_id() + 1);
-
-    // Use the boundary pattern (+1) obtained with "colorize = true" for
+    // Use the boundary pattern obtained with "colorize = true" for
     // uniform_channel_with_cylinder (see also grid_generator.h).
-    mesh_param.id2name.insert({1, "inlet"});
-    mesh_param.id2name.insert({2, "outlet"});
-    mesh_param.id2name.insert({3, "cylinder"});
-    mesh_param.id2name.insert({4, "bottom"});
-    mesh_param.id2name.insert({5, "top"});
-    mesh_param.name2id.insert({"inlet", 1});
-    mesh_param.name2id.insert({"outlet", 2});
-    mesh_param.name2id.insert({"cylinder", 3});
-    mesh_param.name2id.insert({"bottom", 4});
-    mesh_param.name2id.insert({"top", 5});
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "cylinder"});
+    mesh_param.id2name.insert({3, "bottom"});
+    mesh_param.id2name.insert({4, "top"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"cylinder", 2});
+    mesh_param.name2id.insert({"bottom", 3});
+    mesh_param.name2id.insert({"top", 4});
     if constexpr (dim == 3)
     {
-      mesh_param.id2name.insert({6, "front"});
-      mesh_param.id2name.insert({7, "back"});
-      mesh_param.name2id.insert({"front", 6});
-      mesh_param.name2id.insert({"back", 7});
+      mesh_param.id2name.insert({5, "front"});
+      mesh_param.id2name.insert({6, "back"});
+      mesh_param.name2id.insert({"front", 5});
+      mesh_param.name2id.insert({"back", 6});
     }
+
+    if (convert_to_tets)
+    {
+      const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+      GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    }
+  }
+
+  template <int dim>
+  void create_backward_facing_step(Triangulation<dim> &tria,
+                                   Parameters::Mesh   &mesh_param,
+                                   const std::string  &parameters,
+                                   const unsigned int  refinement,
+                                   const bool          convert_to_tets = false)
+  {
+    auto blocks = Utilities::split_string_list(parameters, ':');
+
+    AssertThrow(
+      blocks.size() > 1,
+      ExcMessage(
+        "The parsed arguments to create a mesh of a backward facing step do "
+        "not contain any \":\" separator. Please separate the arguments by "
+        "a colon. The parsed parameters are : " +
+        parameters));
+
+    GridGenerator::generate_from_name_and_arguments(tria,
+                                                    "subdivided_hyper_L",
+                                                    parameters);
+
+    // GridGenerator::subdivided_hyper_L does not color the boundary faces,
+    // so do it here (in 2D only for now).
+    if constexpr (dim == 3)
+      DEAL_II_NOT_IMPLEMENTED();
+
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "walls"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"walls", 2});
+
+    const auto   bottom_left_str = Utilities::split_string_list(blocks[1], ',');
+    const auto   top_right_str   = Utilities::split_string_list(blocks[2], ',');
+    const double x_bottom_left   = std::stod(bottom_left_str[0]);
+    const double x_top_right     = std::stod(top_right_str[0]);
+
+    const double tol = 1e-10;
+    for (const auto &cell : tria.active_cell_iterators())
+      for (const unsigned int f : cell->face_indices())
+        if (cell->face(f)->at_boundary())
+        {
+          // Discriminate based on the x-coordinate of the face's center
+          const double dx = cell->face(f)->center()[0];
+
+          if (std::abs(dx - x_bottom_left) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("inlet"));
+          else if (std::abs(dx - x_top_right) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("outlet"));
+          else
+            cell->face(f)->set_all_boundary_ids(mesh_param.name2id.at("walls"));
+        }
+
+    tria.refine_global(refinement);
 
     if (convert_to_tets)
     {
@@ -373,6 +428,257 @@ namespace MeshTools
     }
   }
 
+  /**
+   * Create a mesh for the large gas pocket impact (LGPI) multiphase benchmark,
+   * which is a rectangular box minus a quarter of ellipse in the bottom left
+   * corner. The coarse mesh is a Cartesian grid whose vertical line x = a
+   * starts at the end (a, 0) of the ellipse, and whose lowest horizontal line
+   * above the bottom is y = d > b. Left of x = a, the cells of the bottom row
+   * start on the ellipse. The cell left of (a, 0) is nearly invalid, since
+   * the ellipse is tangent to x = a there. Only implemented in 2D.
+   *
+   * The parameters are:
+   *
+   *  L, H : a, b : d : n_col, n_pad_x, n_pad_y :
+   *                             use_uniform_angle_spacing : colorize,
+   *
+   * with L x H the dimensions of the box, a and b the semi-axes of the ellipse,
+   * n_col, n_pad_x, n_pad_y the numbers of columns over the ellipse,
+   * columns right of it and rows above d. n_pad_x = 0 or n_pad_y = 0 makes the
+   * cells roughly square, of width a/n_col.
+   *
+   * The cells left of x = a and below y = d use a transfinite interpolation,
+   * and the ellipse an EllipticalManifold, which places the new vertices on
+   * the ellipse equally spaced in elliptic angle within each coarse edge. The
+   * coarse vertices on the ellipse depend on use_uniform_angle_spacing:
+   *
+   * - false: the cartesian grids continues to the bottom, and the vertices lie
+   *   below the column lines, as shown below. The last coarse edge, ending at
+   * (a, 0), spans a larger elliptic angle than the others, so after refinement
+   * the spacing along the ellipse jumps up at its start.
+   *
+   * @verbatim
+   *
+   *     |<----- n_col ----->|<--- n_pad_x --->|
+   *
+   *  H  +----+----+----+----+-----+-----+-----+
+   *     |    |    |    |    |     |     |     | ^
+   *     +----+----+----+----+-----+-----+-----+ | n_pad_y
+   *     |    |    |    |    |     |     |     | v
+   *  d  +----+----+----+----+-----+-----+-----+
+   *     |    |    |    |    |     |     |     |
+   *  b  *....*..  |    |    |     |     |     |
+   *             ..*..  |    |     |     |     |
+   *                  ..*.   |     |     |     |
+   *                       . |     |     |     |
+   *       ellipse          .|     |     |     |
+   *  0                      *-----+-----+-----+
+   *     0                   a                 L
+   *
+   * @endverbatim
+   *
+   * - true: the vertices are equally spaced in elliptic angle, so the spacing
+   * along the ellipse varies smoothly at all levels, decreasing towards (a, 0)
+   * if a > b. The column lines are slanted below d, from (x, d) to the ellipse,
+   *   and the coarse cells there are more sheared. The bottom of the drawing
+   *   becomes:
+   *
+   * @verbatim
+   *
+   *  d  +----+----+----+----+-----+-----+
+   *     |     \    \    \   |     |     |
+   *  b  *.......*.   \  \   |     |     |
+   *               ....*  \  |     |     |
+   *                    ..\  |     |     |
+   *                       * |     |     |
+   *       ellipse          .|     |     |
+   *  0                      *-----+-----+
+   *     0                   a
+   *
+   * @endverbatim
+   */
+  template <int dim>
+  void create_lgpi_geometry(Triangulation<dim> &tria,
+                            Parameters::Mesh   &mesh_param,
+                            const std::string  &parameters,
+                            const unsigned int  refinement,
+                            const bool          convert_to_tets = false);
+
+  template <>
+  void create_lgpi_geometry(Triangulation<2>  &tria,
+                            Parameters::Mesh  &mesh_param,
+                            const std::string &parameters,
+                            const unsigned int refinement,
+                            const bool         convert_to_tets)
+  {
+    // The pattern checks the number of blocks and values, and that the counts
+    // are non-negative integers.
+    using Arguments    = std::tuple<std::array<double, 2>,
+                                 std::array<double, 2>,
+                                 double,
+                                 std::array<unsigned int, 3>,
+                                 bool,
+                                 bool>;
+    const auto pattern = Patterns::Tools::Convert<Arguments>::to_pattern();
+    AssertThrow(pattern->match(parameters),
+                ExcMessage(
+                  "Expected argument list as follows: L, H (box dimensions) : "
+                  "a, b (ellipse semi-axes) : d (height of the lowest "
+                  "horizontal grid line, > b) : n_col, n_pad_x, n_pad_y "
+                  "(subdivisions over the ellipse, right of it and above d) : "
+                  "use_uniform_angle_spacing : colorize. The parsed parameters "
+                  "are : " +
+                  parameters));
+    const Arguments args =
+      Patterns::Tools::Convert<Arguments>::to_value(parameters, *pattern);
+
+    const double       length                    = std::get<0>(args)[0];
+    const double       height                    = std::get<0>(args)[1];
+    const double       a                         = std::get<1>(args)[0];
+    const double       b                         = std::get<1>(args)[1];
+    const double       d                         = std::get<2>(args);
+    const unsigned int n_col                     = std::get<3>(args)[0];
+    const unsigned int n_pad_x                   = std::get<3>(args)[1];
+    const unsigned int n_pad_y                   = std::get<3>(args)[2];
+    const bool         use_uniform_angle_spacing = std::get<4>(args);
+    const bool         colorize                  = std::get<5>(args);
+
+    // Lower left corner, 0 for now.
+    const Point<2> corner;
+
+    AssertThrow(a > 0. && b > 0., ExcMessage("Semi-axes must be positive."));
+    AssertThrow(length > a,
+                ExcMessage("The box must be longer than the ellipse: "
+                           "need length > a."));
+    AssertThrow(d > b && d < height,
+                ExcMessage("The lowest horizontal grid line must lie between "
+                           "the ellipse and the top: need b < d < height."));
+    AssertThrow(n_col >= 1, ExcMessage("n_col must be at least 1."));
+
+    const double tol = 1e-10 * std::max({a, b, length, height});
+
+    // Subdivision counts right of x = a and above y = d; 0 makes the
+    // cells roughly square, with the width a/n_col of the cells over the
+    // ellipse.
+    const auto n_subdivisions = [&](const double       width,
+                                    const unsigned int requested) {
+      if (requested > 0)
+        return requested;
+      return std::max(1u,
+                      static_cast<unsigned int>(std::round(width * n_col / a)));
+    };
+    const unsigned int nx_right = n_subdivisions(length - a, n_pad_x);
+    const unsigned int ny_top   = n_subdivisions(height - d, n_pad_y);
+
+    // Cartesian grid: n_col columns over the ellipse, then nx_right columns
+    // right of x = a; one row up to y = d, then ny_top rows above. With
+    // colorize, the boundary ids are 0 (left), 1 (right), 2 (bottom) and
+    // 3 (top).
+    std::vector<std::vector<double>> step_sizes(2);
+    step_sizes[0].assign(n_col, a / n_col);
+    step_sizes[0].insert(step_sizes[0].end(),
+                         nx_right,
+                         (length - a) / nx_right);
+    step_sizes[1].assign(1, d);
+    step_sizes[1].insert(step_sizes[1].end(), ny_top, (height - d) / ny_top);
+    GridGenerator::subdivided_hyper_rectangle(
+      tria, step_sizes, corner, corner + Point<2>(length, height), colorize);
+
+    // Bottom row. Left of x = a, the bottom faces are moved onto the ellipse
+    // below, and the cells use a transfinite interpolation. Right of it, the
+    // bottom faces are the bottom wall, with boundary id 4 (2 remains on the
+    // ellipse). All other cells and lines are flat, so that the grid lines
+    // x = a and y = d remain straight.
+    const types::manifold_id ellipse_manifold_id = 0;
+    const types::manifold_id tfi_manifold_id     = 1;
+    for (const auto &cell : tria.active_cell_iterators())
+      if (cell->face(2)->at_boundary()) // Face 2 is the bottom face
+      {
+        if (cell->center()[0] - corner[0] < a)
+        {
+          cell->set_manifold_id(tfi_manifold_id);
+          cell->face(2)->set_manifold_id(ellipse_manifold_id);
+        }
+        else if (colorize)
+          cell->face(2)->set_boundary_id(4);
+      }
+
+    // Move the bottom vertices left of x = a onto the ellipse: vertically,
+    // below their column line, or equally spaced in elliptic angle, like the
+    // vertices that the EllipticalManifold adds when refining.
+    GridTools::transform(
+      [&](const Point<2> &p) -> Point<2> {
+        const double x = p[0] - corner[0];
+        if (p[1] - corner[1] > tol || x > a - tol)
+          return p;
+        if (use_uniform_angle_spacing)
+        {
+          const double theta = numbers::PI / 2. * (1. - x / a);
+          return corner + Point<2>(a * std::cos(theta), b * std::sin(theta));
+        }
+        return corner + Point<2>(x, b * std::sqrt(1. - x * x / (a * a)));
+      },
+      tria);
+
+    if (std::abs(a - b) <= tol)
+    {
+      // a circle has eccentricity 0, which EllipticalManifold does not accept
+      tria.set_manifold(ellipse_manifold_id, SphericalManifold<2>(corner));
+    }
+    else
+    {
+      Tensor<1, 2> major_axis;
+      major_axis[(a > b) ? 0 : 1] = 1.;
+      const double A              = std::max(a, b);
+      const double B              = std::min(a, b);
+      const double eccentricity   = std::sqrt(1. - (B * B) / (A * A));
+      tria.set_manifold(ellipse_manifold_id,
+                        EllipticalManifold<2, 2>(corner,
+                                                 major_axis,
+                                                 eccentricity));
+    }
+
+    TransfiniteInterpolationManifold<2> transfinite;
+    transfinite.initialize(tria);
+    tria.set_manifold(tfi_manifold_id, transfinite);
+
+    if (colorize)
+    {
+      mesh_param.id2name.insert({0, "left"});
+      mesh_param.id2name.insert({1, "right"});
+      mesh_param.id2name.insert({2, "ellipse"});
+      mesh_param.id2name.insert({3, "top"});
+      mesh_param.id2name.insert({4, "bottom"});
+      mesh_param.name2id.insert({"left", 0});
+      mesh_param.name2id.insert({"right", 1});
+      mesh_param.name2id.insert({"ellipse", 2});
+      mesh_param.name2id.insert({"top", 3});
+      mesh_param.name2id.insert({"bottom", 4});
+    }
+    else
+    {
+      // All boundary faces keep the default id 0: name it so that it can be
+      // referred to in the boundary conditions.
+      mesh_param.id2name.insert({0, "boundary"});
+      mesh_param.name2id.insert({"boundary", 0});
+    }
+
+    tria.refine_global(refinement);
+
+    if (convert_to_tets)
+      GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, 2u);
+  }
+
+  template <>
+  void create_lgpi_geometry(Triangulation<3> &,
+                            Parameters::Mesh &,
+                            const std::string &,
+                            const unsigned int,
+                            const bool)
+  {
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+
   template <int dim>
   void create_deal_ii_triangulation(Triangulation<dim>   &tria,
                                     ParameterReader<dim> &param)
@@ -388,8 +694,10 @@ namespace MeshTools
       const unsigned int refinement_level =
         param.with_tree_based_adaptation() ?
           param.mesh.refinement_level :
-          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
-                                    param.mesh.refinement_level);
+          (param.mms_param.enable ?
+             static_cast<unsigned int>(
+               std::pow(2, param.mms_param.mesh_suffix + 1)) :
+             param.mesh.refinement_level);
       create_cube(tria,
                   param.mesh,
                   min_corner,
@@ -402,8 +710,10 @@ namespace MeshTools
       const unsigned int refinement_level =
         param.with_tree_based_adaptation() ?
           param.mesh.refinement_level :
-          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
-                                    param.mesh.refinement_level);
+          (param.mms_param.enable ?
+             static_cast<unsigned int>(
+               std::pow(2, param.mms_param.mesh_suffix)) :
+             param.mesh.refinement_level);
       create_rectangle(tria,
                        param.mesh,
                        param.mesh.deal_ii_mesh_param,
@@ -431,6 +741,28 @@ namespace MeshTools
                                            param.mesh.deal_ii_mesh_param,
                                            refinement_level,
                                            convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "backward facing step")
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_backward_facing_step(tria,
+                                  param.mesh,
+                                  param.mesh.deal_ii_mesh_param,
+                                  refinement_level,
+                                  convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "lgpi")
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_lgpi_geometry(tria,
+                           param.mesh,
+                           param.mesh.deal_ii_mesh_param,
+                           refinement_level,
+                           convert_to_simplices);
     }
     else
     {
@@ -619,6 +951,12 @@ namespace MeshTools
     // Check pseudosolid conditions
     for (const auto &[id, bc] : param.pseudosolid_bc)
       check_single_boundary_condition(bc, param);
+    // Check temperature conditions
+    for (const auto &[id, bc] : param.heat_bc)
+      check_single_boundary_condition(bc, param);
+    // Check Cahn-Hilliard conditions
+    for (const auto &[id, bc] : param.cahn_hilliard_bc)
+      check_single_boundary_condition(bc, param);
   }
 
   template <int dim, int spacedim>
@@ -639,8 +977,8 @@ namespace MeshTools
 
       std::cout << "Mesh info:" << std::endl
                 << " dimension: " << dim << std::endl
-                << " no. of cells: " << serial_triangulation.n_active_cells()
-                << std::endl;
+                << " no. of cells: "
+                << serial_triangulation.n_global_active_cells() << std::endl;
 
       std::cout << " boundary indicators: ";
       for (const auto &[id, count] : boundary_count)

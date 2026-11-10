@@ -117,9 +117,9 @@ struct SolverInfo
      "phase_enlarged"}};
 
   // Array with separators and including "none", to use in the parameter file
-  static constexpr std::string_view variable_names_for_param = {
-    {"none|velocity|pressure|mesh_position|temperature|phase_tracer|phase_"
-     "potential|lagrange_mult"}};
+  static constexpr std::string_view variable_names_for_param =
+    "none|velocity|pressure|mesh_position|temperature|phase_tracer|phase_"
+    "potential|lagrange_mult";
 
   /**
    * Convert a VariableType to a string.

@@ -309,7 +309,8 @@ protected:
   /**
    * In 2D, the dof index associated with the unique rigid-body rotation angle.
    */
-  double rotation_angle_dof; // 3 angles in 3D, as for a curltype
+  types::global_dof_index
+    rotation_angle_dof; // 3 angles in 3D, as for a curltype
 
   // A small struct to describe the fixed parameters affecting the rotation.
   struct RigidBodyRotation
@@ -349,6 +350,7 @@ public:
 
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       source_terms.set_time(new_time);
     }
 

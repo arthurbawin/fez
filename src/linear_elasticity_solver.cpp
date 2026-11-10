@@ -292,7 +292,8 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 
   // Create direct solver
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 
   scratch_data = std::make_unique<ScratchData>(*fe,
                                                *mapping,
@@ -343,7 +344,8 @@ void LinearElasticitySolver<dim>::reset()
 
   // Direct solver
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -840,46 +842,16 @@ void LinearElasticitySolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
-  system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-
-  auto assembly_ptr =
-    this->param.nonlinear_solver.analytic_jacobian ?
-      &LinearElasticitySolver::assemble_local_matrix :
-      &LinearElasticitySolver::assemble_local_matrix_finite_differences;
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(dof_handler.begin_active(),
-                  dof_handler.end(),
-                  *this,
-                  assembly_ptr,
-                  &LinearElasticitySolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
+  system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           dof_handler.begin_active(),
+                           dof_handler.end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   system_matrix.compress(VectorOperation::add);
-}
-
-template <int dim>
-void LinearElasticitySolver<dim>::assemble_local_matrix_finite_differences(
-  const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratch_data,
-  CopyData                                             &copy_data)
-{
-  Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &LinearElasticitySolver::assemble_local_rhs,
-    scratch_data,
-    copy_data);
 }
 
 template <int dim>
@@ -1007,8 +979,6 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &LinearElasticitySolver::assemble_local_matrix,
-    &LinearElasticitySolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
@@ -1117,43 +1087,36 @@ void LinearElasticitySolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 
-  if (linear_solver_param.method ==
-      Parameters::LinearSolver::Method::direct_mumps)
+  switch (linear_solver_param.method)
   {
-    if (linear_solver_param.reuse)
-    {
-      solve_linear_system_direct(this,
+    case Parameters::LinearSolver::Method::direct_mumps:
+      LinearSolvers::solve_mumps(this,
                                  linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
-                                 *direct_solver_reuse);
+                                 linear_solver_param.reuse ?
+                                   direct_solver_reuse.get() :
+                                   nullptr);
+      break;
+    case Parameters::LinearSolver::Method::cg:
+    {
+      // FIXME: the preconditioner is re-created each time in the solver
+      std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
+      LinearSolvers::solve_cg(this,
+                              linear_solver_param,
+                              system_matrix,
+                              locally_owned_dofs,
+                              zero_constraints,
+                              preconditioner);
     }
-    else
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints);
-  }
-  else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
-  {
-    solve_linear_system_cg(this,
-                           linear_solver_param,
-                           system_matrix,
-                           locally_owned_dofs,
-                           zero_constraints);
-  }
-  else if (linear_solver_param.method ==
-           Parameters::LinearSolver::Method::gmres)
-  {
-    AssertThrow(false,
-                ExcMessage("GMRES solver is not implemented for "
-                           "LinearElasticitySolver. Use CG unstead."));
-  }
-  else
-  {
-    AssertThrow(false, ExcMessage("No known resolution method"));
+    break;
+    default:
+      AssertThrow(false,
+                  ExcMessage(
+                    "The chosen linear solver is not implemented for the "
+                    "LinearElasticitySolver. The "
+                    "only solvers currently available are Mumps and CG."));
   }
 }
 

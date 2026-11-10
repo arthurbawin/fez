@@ -108,10 +108,11 @@ namespace ErrorEstimation
       n_fields_to_recover = 1;
       for (unsigned int i = 1; i <= degree; ++i)
       {
-        n_fields_to_recover += std::pow(dim, i);
+        n_fields_to_recover += static_cast<unsigned int>(std::pow(dim, i));
       }
       n_derivatives_to_store =
-        n_fields_to_recover - 1 + std::pow(dim, degree + 1);
+        n_fields_to_recover - 1 +
+        static_cast<unsigned int>(std::pow(dim, degree + 1));
     }
 
     template <int dim>
@@ -739,8 +740,10 @@ namespace ErrorEstimation
 
       // Total number of vector components in this object's FESystem
       // = 1 + dim + dim^2 + ... = (dim^(N+1) - 1) / (dim - 1)
-      this->n_components =
-        (std::pow(dim, highest_recovered_derivative + 1) - 1) / (dim - 1);
+      this->n_components = (static_cast<unsigned int>(
+                              std::pow(dim, highest_recovered_derivative + 1)) -
+                            1) /
+                           (dim - 1);
 
       const auto comm     = this->mpi_communicator;
       auto      &owned    = this->locally_owned_recovery_dofs;

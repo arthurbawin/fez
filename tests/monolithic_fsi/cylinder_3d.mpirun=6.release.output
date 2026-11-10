@@ -3,7 +3,7 @@ Using coupling scheme : 1
 Mesh info:
  dimension: 3
  no. of cells: 396
- boundary indicators: 1(23 faces) 2(23 faces) 3(8 faces) 4(8 faces) 5(4 faces) 6(4 faces) 7(126 faces) 
+ boundary indicators: 1(23 faces) 2(23 faces) 3(8 faces) 4(8 faces) 5(4 faces) 6(4 faces) 7(126 faces)
 ID 1 -> Back
 ID 2 -> Front
 ID 3 -> Bottom
@@ -20,7 +20,6 @@ Dim 1 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected the
 Removing zero constraints on cylinder
 Removing nonzero constraints on cylinder
 Matrix has 400688 nnz and size 4868 x 4868
-Removing nonzero constraints on cylinder
 
 Forces on boundary with id 7 computed with method : lagrange_multiplier
 Fx = 0.000000e+00
@@ -28,16 +27,16 @@ Fy = 0.000000e+00
 Fz = 0.000000e+00
 
 Forces per slice on boundary with id 7:
-Slice 0: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 1: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 2: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 3: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 4: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 5: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 6: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 7: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 8: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
-Slice 9: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 0: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 1: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 2: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 3: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 4: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 5: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 6: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 7: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 8: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
+Slice 9: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
 
 Mean position (geometric center) on boundary with id 7:
 x = +7.991935e+00
@@ -55,36 +54,27 @@ Time step 1 - Advancing to t = +1.00000000e-01.
 Removing nonzero constraints on cylinder
 Removing nonzero constraints on cylinder
 Newton iter.  0:          nonlinear residual = +1.85258488e+00
-Removing nonzero constraints on cylinder
-Removing zero constraints on cylinder
-Removing nonzero constraints on cylinder
-Newton iter.  1:          nonlinear residual = +1.13849111e-03	(M)
-Removing nonzero constraints on cylinder
-Removing zero constraints on cylinder
-Removing nonzero constraints on cylinder
-Newton iter.  2:          nonlinear residual = +1.15784587e-09	(M)
-Removing nonzero constraints on cylinder
-Removing zero constraints on cylinder
-Removing nonzero constraints on cylinder
-Newton iter.  3:          nonlinear residual = +2.68270067e-13	(M)
+Newton iter.  1:          nonlinear residual = +1.13849095e-03	(M)
+Newton iter.  2:          nonlinear residual = +1.15757427e-09	(M)
+Newton iter.  3:          nonlinear residual = +2.54697068e-13	(M)
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
 Forces on boundary with id 7 computed with method : lagrange_multiplier
 Fx = +9.995782e-02
-Fy = +5.882208e-08
-Fz = +7.656169e-04
+Fy = +5.860762e-08
+Fz = +7.656214e-04
 
 Forces per slice on boundary with id 7:
-Slice 0: Fx = +1.802123e-02	Fy = -1.544945e-04	Fz = -2.104082e-03	
-Slice 1: Fx = +6.419670e-03	Fy = -2.169264e-04	Fz = +6.602039e-05	
-Slice 2: Fx = +7.883879e-03	Fy = -5.747081e-05	Fz = -7.179215e-04	
-Slice 3: Fx = +7.409888e-03	Fy = -1.100062e-04	Fz = -3.033728e-04	
-Slice 4: Fx = +5.243696e-03	Fy = -1.944237e-04	Fz = +1.476482e-04	
-Slice 5: Fx = +8.163672e-03	Fy = +6.965735e-05	Fz = -1.554658e-05	
-Slice 6: Fx = +8.480978e-03	Fy = +2.932160e-05	Fz = -1.427470e-04	
-Slice 7: Fx = +1.044177e-02	Fy = +2.161738e-04	Fz = +9.988580e-04	
-Slice 8: Fx = +9.862431e-03	Fy = +4.381518e-04	Fz = -7.353313e-04	
-Slice 9: Fx = +1.803060e-02	Fy = -1.992416e-05	Fz = +3.572091e-03	
+Slice 0: Fx = +1.802123e-02	Fy = -1.544952e-04	Fz = -2.104078e-03
+Slice 1: Fx = +6.419671e-03	Fy = -2.169272e-04	Fz = +6.602013e-05
+Slice 2: Fx = +7.883879e-03	Fy = -5.747217e-05	Fz = -7.179207e-04
+Slice 3: Fx = +7.409869e-03	Fy = -1.100048e-04	Fz = -3.033725e-04
+Slice 4: Fx = +5.243679e-03	Fy = -1.944229e-04	Fz = +1.476486e-04
+Slice 5: Fx = +8.163646e-03	Fy = +6.965798e-05	Fz = -1.554620e-05
+Slice 6: Fx = +8.480970e-03	Fy = +2.932120e-05	Fz = -1.427453e-04
+Slice 7: Fx = +1.044178e-02	Fy = +2.161735e-04	Fz = +9.988594e-04
+Slice 8: Fx = +9.862436e-03	Fy = +4.381529e-04	Fz = -7.353341e-04
+Slice 9: Fx = +1.803067e-02	Fy = -1.992478e-05	Fz = +3.572090e-03
 
 Mean position (geometric center) on boundary with id 7:
 x = +8.091893e+00
@@ -92,8 +82,8 @@ y = +8.000069e+00
 z = +3.994095e+00
 
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -9.99578230e-02 -5.88220760e-08 -7.65616878e-04
-Prescribed displacement        is +9.99578234e-02 +5.88269433e-08 +8.88178420e-16
-                         Ratio is -9.99999996e-01 +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +4.44089210e-15 +1.42108547e-14 +3.55271368e-15
+Integral of lambda on cylinder is -9.99578233e-02 -5.86076158e-08 -7.65621409e-04
+Prescribed displacement        is +9.99578231e-02 +5.88303726e-08 +8.88178420e-16
+                         Ratio is -1.00000000e+00 +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +1.04058984e-11 +4.44089210e-15 +5.55461355e-12
 

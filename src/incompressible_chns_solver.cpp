@@ -15,7 +15,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_evaluate.h>
@@ -332,7 +331,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
     // Create the MMS source term function and override source terms
     this->source_terms = std::make_shared<
       CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm>(
-      this->time_handler.current_time, *this->ordering, param);
+      this->time_handler.current_time, *this->ordering, this->param);
 
     // Create entry in error handler for tracer and potential
     for (auto &[norm, handler] : this->error_handlers)
@@ -355,10 +354,10 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   vector_value(const Point<dim> &p, Vector<double> &values) const
 {
-  const double phi          = mms.exact_tracer->value(p);
-  const double psi          = mms.exact_psi->value(p);
-  const double filtered_phi =
-    CahnHilliard::get_limiter_function(cahn_hilliard_param)(phi);
+  const double phi = mms.exact_tracer->value(p);
+  const double psi = mms.exact_psi->value(p);
+  // Filter the tracer as in the scratch data, if applicable
+  const double filtered_phi = tracer_limiter(phi);
   const double property_phi_derivative =
     CahnHilliard::tracer_limiter_derivative(
       phi,
@@ -959,42 +958,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 
   this->update_constraints_for_evaluation_point();
 
-  this->system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
-                      &CHNSSolver::assemble_local_matrix :
-                      &CHNSSolver::assemble_local_matrix_finite_differences;
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler->begin_active(),
-                  this->dof_handler->end(),
-                  *this,
-                  assembly_ptr,
-                  &CHNSSolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
-
+  this->system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           this->dof_handler->begin_active(),
+                           this->dof_handler->end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
-}
-
-template <int dim, bool with_moving_mesh, bool with_enlarged>
-void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
-  assemble_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData                                          &scratch_data,
-    CopyData                                             &copy_data)
-{
-  Verification::compute_local_matrix_finite_differences<dim>(
-    cell, *this, &CHNSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -1700,8 +1673,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &CHNSSolver::assemble_local_matrix,
-    &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);

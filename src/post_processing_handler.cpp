@@ -2,6 +2,7 @@
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <post_processing_handler.h>
+#include <postprocessors_and_evaluators.h>
 
 #include <algorithm>
 #include <cmath>
@@ -63,11 +64,13 @@ namespace
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
+  const ComponentOrdering                                 &ordering,
   const ParameterReader<dim>                              &param,
   const Triangulation<dim>                                &triangulation,
   const DoFHandler<dim>                                   &dof_handler,
   const std::vector<std::pair<std::string, unsigned int>> &fields_description)
-  : post_proc_param(param.postprocessing)
+  : ordering(ordering)
+  , post_proc_param(param.postprocessing)
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
@@ -94,6 +97,25 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   }
 
   this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
+
+  // Create the required DataPostProcessors
+  {
+    const auto &pp = param.postprocessing;
+    using PP       = Parameters::PostProcessing;
+
+    postprocessors.clear();
+    if (pp.vorticity.enable and
+        pp.vorticity.method == PP::Vorticity::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::VorticityPostProcessor<dim>>(
+          ordering));
+    if (pp.q_criterion.enable and
+        pp.q_criterion.method ==
+          PP::QCriterion::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::QCriterionPostProcessor<dim>>(
+          ordering));
+  }
 }
 
 template <int dim>
@@ -157,32 +179,39 @@ void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
 
   if (mpi_rank == 0)
   {
-    if (output_param.write_results)
+    if (prefix_data.is_prerefinement_step)
     {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+      if (!prerefinements_pseudotimes_and_names.empty())
+      {
+        std::ofstream pvd_output(output_param.output_dir +
+                                 output_param.output_prefix + suffix);
+        DataOutBase::write_pvd_record(pvd_output,
+                                      prerefinements_pseudotimes_and_names);
+      }
+      if (!prerefinements_pseudotimes_and_names_skin.empty())
+      {
+        std::ofstream pvd_output(output_param.output_dir +
+                                 output_param.skin.output_prefix + suffix);
+        DataOutBase::write_pvd_record(
+          pvd_output, prerefinements_pseudotimes_and_names_skin);
+      }
     }
-    if (output_param.skin.write_results)
+    else
     {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.skin.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    visualization_times_and_names_skin);
-    }
-    if (!prerefinements_pseudotimes_and_names.empty())
-    {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    prerefinements_pseudotimes_and_names);
-    }
-    if (!prerefinements_pseudotimes_and_names_skin.empty())
-    {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.skin.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    prerefinements_pseudotimes_and_names_skin);
+      if (output_param.write_results)
+      {
+        std::ofstream pvd_output(output_param.output_dir +
+                                 output_param.output_prefix + suffix);
+        DataOutBase::write_pvd_record(pvd_output,
+                                      visualization_times_and_names);
+      }
+      if (output_param.skin.write_results)
+      {
+        std::ofstream pvd_output(output_param.output_dir +
+                                 output_param.skin.output_prefix + suffix);
+        DataOutBase::write_pvd_record(pvd_output,
+                                      visualization_times_and_names_skin);
+      }
     }
   }
 }
@@ -242,11 +271,9 @@ void PostProcessingHandler<dim>::create_slices()
                           dir == "y" ? SliceAxis::y :
                                        SliceAxis::z);
 
-  PostProcessingTools::set_slice_index_on_boundary<dim>(
-    *triangulation,
-    post_proc_param.slices.boundary_id,
-    post_proc_param.slices.n_slices,
-    axis);
+  for (const auto id : post_proc_param.slices.boundary_ids)
+    PostProcessingTools::set_slice_index_on_boundary<dim>(
+      *triangulation, id, post_proc_param.slices.n_slices, axis);
 
   // Store slice indices as cell-based data.
   // If a face is on the sliced boundary, set its cell slice index to the
@@ -256,7 +283,9 @@ void PostProcessingHandler<dim>::create_slices()
     if (cell->is_locally_owned())
       for (const auto &face : cell->face_iterators())
         if (face->at_boundary() &&
-            face->boundary_id() == post_proc_param.slices.boundary_id)
+            std::binary_search(post_proc_param.slices.boundary_ids.begin(),
+                               post_proc_param.slices.boundary_ids.end(),
+                               face->boundary_id()))
         {
           slice_indices[cell->active_cell_index()] = face->user_index();
           break;
@@ -279,14 +308,16 @@ void PostProcessingHandler<dim>::clear()
 
 template <int dim>
 void PostProcessingHandler<dim>::add_force_to_table(
-  const Tensor<1, dim> &forces,
-  const TimeHandler    &time_handler,
-  TableHandler         &force_table,
-  const unsigned int    i_slice)
+  const Tensor<1, dim>    &forces,
+  const TimeHandler       &time_handler,
+  TableHandler            &force_table,
+  const types::boundary_id boundary_id,
+  const unsigned int       i_slice)
 {
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   force_table.add_value("time", time_handler.current_time);
+  force_table.add_value("boundary", boundary_id);
   if (i_slice != numbers::invalid_unsigned_int)
     force_table.add_value("slice", i_slice);
   for (unsigned int d = 0; d < dim; ++d)
@@ -300,13 +331,15 @@ void PostProcessingHandler<dim>::add_force_to_table(
 
 template <int dim>
 void PostProcessingHandler<dim>::add_position_to_table(
-  const Tensor<1, dim> &center_position,
-  const TimeHandler    &time_handler,
-  TableHandler         &table)
+  const Tensor<1, dim>    &center_position,
+  const TimeHandler       &time_handler,
+  TableHandler            &table,
+  const types::boundary_id boundary_id)
 {
   // Write position to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   table.add_value("time", time_handler.current_time);
+  table.add_value("boundary", boundary_id);
   for (unsigned int d = 0; d < dim; ++d)
   {
     table.add_value(dim_str[d], center_position[d]);
@@ -322,7 +355,7 @@ void PostProcessingHandler<dim>::add_multiphase_data_to_table(
   const std::array<DataType, 2>                        &data_for_phases,
   const TimeHandler                                    &time_handler,
   TableHandler                                         &table,
-  const Parameters::PostProcessing::PostProcessingBase &pp_param)
+  const Parameters::PostProcessing::PostProcessingFile &pp_param)
 {
   if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
   {
@@ -355,32 +388,32 @@ template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 2>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 3>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 
 template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,
-  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+  const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
 {
   if (mpi_rank == 0)
   {
-    out << std::scientific << std::setprecision(postproc_base.precision);
+    out << std::scientific << std::setprecision(postproc_file.precision);
     table.write_text(out);
   }
 }
@@ -399,7 +432,6 @@ void PostProcessingHandler<dim>::write_structure_mean_position(
               structure_mean_position_table,
               post_proc_param.structure_position);
 }
-
 
 template <int dim>
 void PostProcessingHandler<dim>::process_chns_integrals(
@@ -709,6 +741,104 @@ void PostProcessingHandler<dim>::load_checkpoint_state(
   chns_initial_phase  = reference[2];
   chns_initial_volume = reference[3];
   chns_initial_energy = reference[4];
+}
+
+template <int dim>
+std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+PostProcessingHandler<dim>::create_field_postprocessor(
+  const PostProcessingTools::PostprocessorAtDofTypes type,
+  const ParameterReader<dim>                        &param,
+  const Mapping<dim>                                &mapping,
+  const Quadrature<dim>                             &cell_quadrature,
+  const bool                                         with_moving_mesh)
+{
+  using namespace PostProcessingTools;
+  using Vorticity  = Parameters::PostProcessing::Vorticity;
+  using QCriterion = Parameters::PostProcessing::QCriterion;
+
+  switch (type)
+  {
+    case PostprocessorAtDofTypes::vorticity:
+      switch (param.postprocessing.vorticity.method)
+      {
+        case Vorticity::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case Vorticity::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, VorticityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Vorticity::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        VorticityEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::q_criterion:
+      switch (param.postprocessing.q_criterion.method)
+      {
+        case QCriterion::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case QCriterion::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        L2Projection>>(param,
+                                                       ordering,
+                                                       mapping,
+                                                       *dof_handler,
+                                                       cell_quadrature,
+                                                       with_moving_mesh);
+        case QCriterion::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::mesh_velocity:
+      return std::make_unique<MeshVelocityPostprocessor<dim>>(
+        ordering, param, mapping, *dof_handler, cell_quadrature);
+    default:
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
+  return nullptr;
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::create_field_postprocessors(
+  const ParameterReader<dim> &param,
+  const Mapping<dim>         &mapping,
+  const Quadrature<dim>      &cell_quadrature,
+  const bool                  with_moving_mesh)
+{
+  for (const auto &[type, postprocessor_param_ptr] :
+       param.postprocessing.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
+      field_postprocessors[type] = create_field_postprocessor(
+        type, param, mapping, cell_quadrature, with_moving_mesh);
 }
 
 template class PostProcessingHandler<2>;

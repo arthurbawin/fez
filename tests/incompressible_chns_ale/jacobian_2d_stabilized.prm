@@ -1,0 +1,227 @@
+# Compare the actual CHNS-ALE solver Jacobian in a moving P2 mesh.
+# Both stabilization terms are active through the BDF1 start and BDF2 steps.
+# The finite-difference diagnostic keeps tau fixed to match FEZ's
+# stabilization linearization, including the mesh-position columns.
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 2, 2 : 0., 0. : 1., 1. : true
+  set refinement level       = 1
+end
+
+
+subsection Time integration
+  set dt               = 0.01
+  set t_initial        = 0
+  set t_end            = 0.03
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 40
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+
+  set compare jacobian matrix with finite differences = true
+  # These thresholds control matrix dumps; the maximum error is also checked
+  # against the reference output.
+  set analytical_jacobian_absolute_tolerance = 1e-4
+  set analytical_jacobian_relative_tolerance = 1e-4
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree      = 2
+  set Pressure degree      = 1
+  set Mesh position degree = 2
+  set Tracer degree        = 2
+  set Potential degree     = 2
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density             = 1.3
+    set kinematic viscosity = 0.7
+  end
+  subsection Fluid 1
+    set density             = 0.8
+    set kinematic viscosity = 1.1
+  end
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+  set body force = 0, -0.981
+end
+
+subsection Cahn Hilliard
+  set mobility model        = constant
+  set mobility              = 0.4
+  set surface tension       = 1.1
+  set interface thickness   = 1
+  set enable tracer limiter = false
+end
+
+subsection Stabilization
+  set enable supg = true
+  set enable tracer supg = true
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0.3 + 0.1*y*y; 0.2 + 0.1*x*x
+  end
+  subsection cahn hilliard tracer
+    set Function expression = -0.3 + 0.2*x*y
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id = 0
+    set name = x_min
+    set type = input_function
+    subsection u
+      set Function expression = 0.3 + 0.1*y*y
+    end
+    subsection v
+      set Function expression = 0.2 + 0.1*x*x
+    end
+  end
+  subsection boundary 1
+    set id = 1
+    set name = x_max
+    set type = input_function
+    subsection u
+      set Function expression = 0.3 + 0.1*y*y
+    end
+    subsection v
+      set Function expression = 0.2 + 0.1*x*x
+    end
+  end
+  subsection boundary 2
+    set id = 2
+    set name = y_min
+    set type = input_function
+    subsection u
+      set Function expression = 0.3 + 0.1*y*y
+    end
+    subsection v
+      set Function expression = 0.2 + 0.1*x*x
+    end
+  end
+  subsection boundary 3
+    set id = 3
+    set name = y_max
+    set type = input_function
+    subsection u
+      set Function expression = 0.3 + 0.1*y*y
+    end
+    subsection v
+      set Function expression = 0.2 + 0.1*x*x
+    end
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id = 0
+    set name = x_min
+    set type = input_function
+    subsection x
+      set Function expression = x + 0.03*sin(2*pi*t)*x*(1-x)
+    end
+    subsection y
+      set Function expression = y + 0.03*sin(2*pi*t)*y*(1-y)
+    end
+  end
+  subsection boundary 1
+    set id = 1
+    set name = x_max
+    set type = input_function
+    subsection x
+      set Function expression = x + 0.03*sin(2*pi*t)*x*(1-x)
+    end
+    subsection y
+      set Function expression = y + 0.03*sin(2*pi*t)*y*(1-y)
+    end
+  end
+  subsection boundary 2
+    set id = 2
+    set name = y_min
+    set type = input_function
+    subsection x
+      set Function expression = x + 0.03*sin(2*pi*t)*x*(1-x)
+    end
+    subsection y
+      set Function expression = y + 0.03*sin(2*pi*t)*y*(1-y)
+    end
+  end
+  subsection boundary 3
+    set id = 3
+    set name = y_max
+    set type = input_function
+    subsection x
+      set Function expression = x + 0.03*sin(2*pi*t)*x*(1-x)
+    end
+    subsection y
+      set Function expression = y + 0.03*sin(2*pi*t)*y*(1-y)
+    end
+  end
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id = 0
+    set name = x_min
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id = 1
+    set name = x_max
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id = 2
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id = 3
+    set name = y_max
+    set type = no_flux
+  end
+end

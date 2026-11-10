@@ -4,7 +4,7 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = false
+  set enable timer = true
 end
 
 subsection Output
@@ -23,7 +23,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 7
+    set boundary ids        = 7
     set output prefix      = forces
     set output frequency   = 1
     set computation method = stress vector
@@ -31,12 +31,18 @@ subsection Postprocessing
 
   subsection slicing
     set enable           = true
-    set boundary id      = 7
+    set boundary ids      = 7
     set output prefix    = slices
     set output frequency = 1
     set along which axis = z
     set number of slices = 10
     set compute forces   = true
+  end
+  subsection vorticity
+    set enable             = true
+    set output frequency   = 1
+    set computation method = l2 projection
+    set degree             = 1
   end
 end
 

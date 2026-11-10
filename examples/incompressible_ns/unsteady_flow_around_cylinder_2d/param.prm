@@ -81,10 +81,22 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 4
+    set boundary ids        = 4
     set output prefix      = forces
     set output frequency   = 1
     set computation method = stress vector
+  end
+  subsection vorticity
+    set enable             = true
+    set output frequency   = 1
+    set computation method = l2 projection
+    set degree             = 1
+  end
+  subsection q_criterion
+    set enable             = true
+    set output frequency   = 1
+    set computation method = weighted average
+    set degree             = 1
   end
 end
 

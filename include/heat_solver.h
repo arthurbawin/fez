@@ -193,6 +193,11 @@ public:
   void postprocess_solution();
 
   /**
+   * Compute the volume integrals of the selected finite element variables.
+   */
+  void compute_field_integrals();
+
+  /**
    *
    */
   void compute_and_add_errors(const Mapping<dim>  &mapping,
@@ -351,6 +356,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 

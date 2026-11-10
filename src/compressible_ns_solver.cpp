@@ -8,7 +8,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -79,6 +78,10 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
     {
       // Use the provided source term instead of the source term computed from
       // symbolic differentiation.
+      // FIXME: fluid_source only has dim+1 components (velocity and pressure),
+      // but this solver has dim+2 (with temperature), so the scratch data
+      // evaluates it with a vector of the wrong size, and the temperature
+      // source is never set. Wrap the parameters in a SourceTerm instead.
       this->source_terms = param.source_terms.fluid_source;
     }
     else
@@ -322,47 +325,16 @@ void CompressibleNSSolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  this->system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-
-  auto assembly_ptr =
-    this->param.nonlinear_solver.analytic_jacobian ?
-      &CompressibleNSSolver::assemble_local_matrix :
-      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler->begin_active(),
-                  this->dof_handler->end(),
-                  *this,
-                  assembly_ptr,
-                  &CompressibleNSSolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
-
+  this->system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           this->dof_handler->begin_active(),
+                           this->dof_handler->end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
-}
-
-template <int dim>
-void CompressibleNSSolver<dim>::assemble_local_matrix_finite_differences(
-  const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratch_data,
-  CopyData                                             &copy_data)
-{
-  Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &CompressibleNSSolver::assemble_local_rhs,
-    scratch_data,
-    copy_data);
 }
 
 template <int dim>
@@ -685,6 +657,11 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                      2.0 / 3.0 * mu * div_phi_u_face[j] * n * phi_u_face[i]);
                 }
 
+                // FIXME: The residual on these faces uses the prescribed
+                // pressure_bc, not the pressure unknown, so its derivative
+                // w.r.t. p is zero. This term makes the Jacobian inconsistent
+                // with the residual (the volume -p div(phi_u) term is already
+                // linearized in the u-p block), and should be removed.
                 if (i_is_u && j_is_p)
                 {
                   assemble = true;
@@ -725,8 +702,6 @@ void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &CompressibleNSSolver::assemble_local_matrix,
-    &CompressibleNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);

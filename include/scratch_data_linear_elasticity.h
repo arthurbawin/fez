@@ -102,6 +102,12 @@ public:
     allocate();
   }
 
+  /**
+   * Dummy setter for the matrix comparison interface. This scratch has no
+   * stabilization parameters to keep constant.
+   */
+  void set_keep_tau_constant(const bool /*keep_constant*/) {}
+
 private:
   void allocate()
   {
@@ -109,7 +115,6 @@ private:
     lame_mu.resize(n_q_points);
     lame_lambda.resize(n_q_points);
 
-    // Indexed by local dof index in reinit(), not by quadrature point.
     components.resize(dofs_per_cell);
 
     position_values.resize(n_q_points);

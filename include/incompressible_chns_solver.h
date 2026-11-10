@@ -99,16 +99,6 @@ public:
     CopyData                                             &copy_data);
 
   /**
-   * Compute the element-wise matrix using finite differences.
-   * FIXME: Rethink this to handle the finite difference computations
-   * in the base class and not in derived solvers.
-   */
-  void assemble_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData                                          &scratchData,
-    CopyData                                             &copy_data);
-
-  /**
    * Assemble the element-wise matrix computed with assemble_local_matrix
    * into the global matrix. Passed to WorkStream::run (see above).
    */
@@ -204,6 +194,7 @@ protected:
 
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       source_terms.set_time(new_time);
     }
 
@@ -256,6 +247,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -389,12 +381,14 @@ protected:
       , psi_lower(ordering.psi_lower)
       , physical_properties(param.physical_properties)
       , cahn_hilliard_param(param.cahn_hilliard)
+      , tracer_limiter(CahnHilliard::get_limiter_function(param.cahn_hilliard))
       , mms(param.mms)
     {}
 
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -437,6 +431,7 @@ protected:
     const unsigned int                               psi_lower;
     const Parameters::PhysicalProperties<dim>       &physical_properties;
     const Parameters::CahnHilliard<dim>             &cahn_hilliard_param;
+    const CahnHilliard::TracerLimiterFunction        tracer_limiter;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 };

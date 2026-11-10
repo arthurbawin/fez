@@ -74,6 +74,12 @@ public:
     allocate();
   }
 
+  /**
+   * Dummy setter for the matrix comparison interface. This scratch has no
+   * stabilization parameters to keep constant.
+   */
+  void set_keep_tau_constant(const bool /*keep_constant*/) {}
+
 private:
   void allocate()
   {

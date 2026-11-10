@@ -157,9 +157,11 @@ namespace Assembly
               {
                 const auto &phi_x = sd.phi_x_face[i_face][q];
                 delta_dx          = &sd.delta_dx[i_face][q];
-                const auto u_ale =
-                  sd.present_face_velocity_values[i_face][q] -
-                  sd.present_face_mesh_velocity_values[i_face][q];
+                auto u_ale        = sd.present_face_velocity_values[i_face][q] -
+                             sd.present_face_mesh_velocity_values[i_face][q];
+                if (fluid_bc.enable_rigid_body_rotation)
+                  u_ale -=
+                    sd.input_face_rigid_body_rotation_velocity[i_face][q];
                 lambda = &sd.present_face_lambda_values[i_face][q];
 
                 for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)

@@ -2,6 +2,7 @@
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -37,7 +38,18 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                present_solution,
                                previous_solutions,
                                metric_for_adaptation)
+  , should_assemble_preconditioner(true)
 {
+#if !DEAL_II_VERSION_GTE(9, 9, 0)
+  if constexpr (with_moving_mesh)
+    AssertThrow(
+      !param.stabilization.enable_supg &&
+        !param.stabilization.enable_tracer_supg,
+      ExcMessage(
+        "SUPG stabilization on moving meshes requires MappingFEField Hessian "
+        "transformations, available in deal.II v9.9 onward."));
+#endif
+
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -93,13 +105,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
 
   // Clear mesh(es) and dof handler(s), and reassign immediately the
   // pointers for the first interval.
-  if (mms_param.current_step > 0)
-    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
-                                      triangulation,
-                                      dof_handler,
-                                      present_solution,
-                                      previous_solutions,
-                                      metric_for_adaptation);
+  if (!param.with_tree_based_adaptation())
+    if (mms_param.current_step > 0)
+      transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                        triangulation,
+                                        dof_handler,
+                                        present_solution,
+                                        previous_solutions,
+                                        metric_for_adaptation);
+
+  dofs_to_component.clear();
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -136,7 +151,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   // Create the post-processing handler once the full list of variables is known
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
-    param, *triangulation, *dof_handler, description);
+    *ordering, param, *triangulation, *dof_handler, description);
 
   // Set up data to create the names of the visualization files
   prefix_data.is_convergence_step = param.mms_param.enable;
@@ -156,6 +171,12 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::initialize_interval(
   const unsigned interval_index)
 {
+  // (Re)create the dof-based postprocessed fields
+  postproc_handler->create_field_postprocessors(param,
+                                                *moving_mapping,
+                                                *quadrature,
+                                                with_moving_mesh);
+
   if (param.bc_data.n_metric_fields > 0)
     metric_for_adaptation->reinit(param.metrics.metric_for_adaptation,
                                   param,
@@ -193,6 +214,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize_interval(
       {
         metric_for_adaptation->copy_metrics_from(*metrics[id]);
       }
+
+  // Preconditioner will have to be assembled on next mesh
+  should_assemble_preconditioner = true;
 
   finalize_interval_solver_specific(interval_index);
 }
@@ -243,7 +267,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
 
   // Create a direct solver for each interval
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -259,11 +284,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
    */
   if (!param.checkpoint_restart.restart)
   {
-    MeshTools::read_mesh(*triangulation, param);
+    if (should_create_triangulation())
+      MeshTools::read_mesh(*triangulation, param);
     setup_dofs();
   }
   else
   {
+    // AMR was not yet tested with restart
+    AssertThrow(!param.with_tree_based_adaptation(),
+                ExcMessage("Simulation restart with adaptive mesh refinement "
+                           "(AMR) it currently not implemented."));
     restart();
   }
 
@@ -279,11 +309,37 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
   create_nonzero_constraints();
   create_sparsity_pattern();
 
+  /**
+   * Apply initial refinement.
+   */
+  if (!time_handler.is_steady() && param.with_tree_based_adaptation())
+  {
+    prefix_data.is_prerefinement_step = true;
+    for (unsigned int step = 0;
+         step < param.mesh.adaptation.tree_amr.n_prerefinement_steps;
+         ++step)
+    {
+      update_boundary_conditions();
+      set_initial_conditions(false);
+      adapt_mesh();
+      prefix_data.prerefinement_step = step;
+      output_results();
+    }
+    prefix_data.is_prerefinement_step = false;
+  }
+
   if (!param.checkpoint_restart.restart)
   {
     if (interval_index == 0)
       set_initial_conditions();
     else
+      // FIXME: For moving-mesh solvers, moving_mapping is a MappingFEField
+      // built on the dof handler and evaluation point of the *current*
+      // interval, but the transfer also uses it to evaluate the solution on
+      // the *previous* interval's dof handler (another triangulation), which
+      // is invalid. Either use the fixed mapping for the previous interval
+      // (if the transfer is meant to be done in the reference configuration),
+      // or forbid transfer_solution with a moving mesh and several intervals.
       transient_fixed_point_data.transfer_solution_between_intervals(
         interval_index,
         *moving_mapping,
@@ -337,6 +393,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
                                               *previous_solutions));
 
     postprocess_solution();
+
+    /**
+     * Adapt the tree-based mesh during an unsteady simulation, if the current
+     * time step iteration matches the prescribed frequency.
+     *
+     * For steady-state simulations, the mesh is adapted after the finalize()
+     * function is called, so that the registered number of mesh elements
+     * and dofs matches the computed error for convergence studies.
+     */
+    if (should_adapt_tree_based_mesh(time_handler))
+      adapt_mesh();
+
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
 
     if (param.checkpoint_restart.enable_checkpoint &&
@@ -562,6 +630,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   constraints.clear();
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
+  if (param.with_tree_based_adaptation())
+    DoFTools::make_hanging_node_constraints(*dof_handler, constraints);
+
   /**
    * Set whole field from exact solution if required, and add the associated
    * constraints for the volume and boundary dofs.
@@ -713,7 +784,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_nonzero_constraints()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
+void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
+  const bool rotate_solutions)
 {
   /**
    * Mesh position should be evaluated and updated *BEFORE* evaluating fields on
@@ -780,8 +852,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   *present_solution = newton_update;
   evaluation_point  = newton_update;
 
-  // FIXME: WHAT ABOUT THIS ROTATION?????????
-  time_handler.rotate_solutions(*present_solution, *previous_solutions);
+  if (rotate_solutions)
+    // FIXME: WHAT ABOUT THIS ROTATION?????????
+    time_handler.rotate_solutions(*present_solution, *previous_solutions);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -881,35 +954,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
   if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (linear_solver_param.reuse)
-    {
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints,
-                                 *direct_solver_reuse);
-    }
-    else
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints);
-  }
-  else if (linear_solver_param.method ==
-           Parameters::LinearSolver::Method::gmres)
-  {
-    solve_linear_system_iterative(this,
-                                  linear_solver_param,
-                                  system_matrix,
-                                  locally_owned_dofs,
-                                  zero_constraints);
+    LinearSolvers::solve_mumps(this,
+                               linear_solver_param,
+                               system_matrix,
+                               locally_owned_dofs,
+                               zero_constraints,
+                               linear_solver_param.reuse ?
+                                 direct_solver_reuse.get() :
+                                 nullptr);
   }
   else
-  {
-    AssertThrow(false, ExcMessage("No known resolution method"));
-  }
+    // The choice of appropriate iterative solver and preconditioner is
+    // delegated to each derived solver
+    solve_linear_system_iterative();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1032,38 +1089,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
-  // Compute mesh velocity and add it to the DataOut of the postproc handler
-  // FIXME: do this without placeholders
-  if constexpr (with_moving_mesh)
-  {
-    if (postproc_handler->should_output_volume_fields(time_handler))
-    {
-      LA::ParVectorType mesh_velocity;
-      mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
-
-      IndexSet owned_position_dofs =
-        DoFTools::extract_dofs(*dof_handler, position_mask);
-      owned_position_dofs = owned_position_dofs & locally_owned_dofs;
-
-      for (const auto &dof : owned_position_dofs)
-        mesh_velocity[dof] =
-          time_handler.compute_time_derivative(dof,
-                                               *present_solution,
-                                               *previous_solutions);
-      mesh_velocity.compress(VectorOperation::insert);
-
-      auto variable_names = postproc_handler->get_field_names();
-      for (auto &name : variable_names)
-      {
-        if (name == "mesh_position")
-          name = "mesh_velocity";
-        else
-          name = "unused_" + name;
-      }
-
-      postproc_handler->add_dof_data_vector(mesh_velocity, variable_names);
-    }
-  }
+  // Compute the postprocessed fields added to the visualization file
+  compute_dof_based_postprocessing();
 
   // Let the derived solvers add their own relevant cell and/or dof-based
   // data, to output either in the volume or on the prescribed boundary (skin).
@@ -1203,9 +1230,31 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_riemannian_metric()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim,
+                        with_moving_mesh>::compute_dof_based_postprocessing()
+{
+  postproc_handler->compute_field_postprocessors(computing_timer,
+                                                 *present_solution,
+                                                 *previous_solutions,
+                                                 time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_field_integrals()
+{
+  postproc_handler->compute_field_integrals(*moving_mapping,
+                                            *quadrature,
+                                            *present_solution,
+                                            time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
+
+  if (param.postprocessing.field_integral.enable)
+    compute_field_integrals();
 
   if (param.postprocessing.forces.enable)
     compute_forces();
@@ -1227,10 +1276,71 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_error_estimate()
+{
+  TimerOutput::Scope t(computing_timer, "Compute Kelly error estimate");
+
+  cellwise_refinement_criterion.reinit(triangulation->n_active_cells());
+
+  // FIXME: Implement adaptation with multiple variables
+  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() ==
+                1,
+              ExcMessage("Adaptation is limited to a single variable for now"));
+
+  for (const auto variable :
+       param.mesh.adaptation.tree_amr.variables_for_adaptation)
+  {
+    KellyErrorEstimator<dim>::estimate(
+      *moving_mapping,
+      *dof_handler,
+      *error_face_quadrature,
+      std::map<types::boundary_id, const Function<dim> *>(),
+      *present_solution,
+      cellwise_refinement_criterion,
+      get_component_mask(variable));
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 {
-  Vector<float> cellwise_errors(triangulation->n_active_cells());
-  transient_fixed_point_data.adapt_meshes(cellwise_errors);
+  if (param.with_tree_based_adaptation())
+    compute_error_estimate();
+
+  // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
+  // error criteria.
+  transient_fixed_point_data.adapt_meshes(cellwise_refinement_criterion);
+
+  // Re-setup up the dof_handler, constraints and linear algebra structures.
+  // For steady-state convergence studies, we're doing the work twice, here
+  // and at the beginning of the next convergence step, but it's OK.
+  if (param.with_tree_based_adaptation())
+  {
+    setup_dofs();
+    setup_mappings();
+    create_scratch_data();
+    constrained_pressure_dof = numbers::invalid_dof_index;
+    if (param.bc_data.enforce_zero_mean_pressure)
+      create_zero_mean_pressure_constraints_data();
+    create_solver_specific_constraints_data();
+    create_zero_constraints();
+    create_nonzero_constraints();
+    create_sparsity_pattern();
+    direct_solver_reuse =
+      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                              mpi_communicator);
+    postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
+                                                           *dof_handler);
+    postproc_handler->create_field_postprocessors(param,
+                                                  *moving_mapping,
+                                                  *quadrature,
+                                                  with_moving_mesh);
+    transient_fixed_point_data.transfer_solution_between_refinements(
+      locally_relevant_dofs, nonzero_constraints);
+  }
+
+  // Preconditioner should be assembled again since mesh has changed
+  should_assemble_preconditioner = true;
 }
 
 template <int dim, bool with_moving_mesh>

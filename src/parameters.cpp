@@ -1,6 +1,7 @@
 
 #include <assembly/chns_enlarged_forms.h>
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
+#include <field_postprocessors.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -140,12 +141,12 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-      prm.declare_entry(
-        "dealii preset mesh",
-        "none",
-        Patterns::Selection(
-          "none|cube|rectangle|holed plate|uniform channel with cylinder"),
-        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry("dealii preset mesh",
+                        "none",
+                        Patterns::Selection(
+                          "none|cube|rectangle|holed plate|uniform channel "
+                          "with cylinder|backward facing step|lgpi"),
+                        "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
@@ -214,6 +215,12 @@ namespace Parameters
                             "Refinement strategy used by deal.II's "
                             "refine_and_coarsen routines");
           prm.declare_entry(
+            "variables for adaptation",
+            "velocity",
+            Patterns::List(Patterns::Selection(
+              std::string(SolverInfo::variable_names_for_param))),
+            "Comma-separated list of variables used for mesh adaptation");
+          prm.declare_entry(
             "fraction to refine",
             // As suggested in grid_refinement.h, use as default
             // the fractions that lead to doubling the number of cells
@@ -239,6 +246,11 @@ namespace Parameters
                             "1000000",
                             Patterns::Integer(0),
                             "Maximum number of mesh cells allowed");
+          prm.declare_entry(
+            "number of steady adaptation steps",
+            "0",
+            Patterns::Integer(0),
+            "Number of adaptation steps for steady-state computations");
           prm.declare_entry(
             "number of prerefinement steps",
             "0",
@@ -317,6 +329,21 @@ namespace Parameters
                         ExcMessage(
                           "Unexpected mesh adaptation refinement strategy: " +
                           parsed_strategy));
+          const auto parsed_variable_list =
+            Utilities::split_string_list(prm.get("variables for adaptation"),
+                                         ",");
+          t.variables_for_adaptation.clear();
+          for (const auto &var : parsed_variable_list)
+          {
+            AssertThrow(
+              var != "none",
+              ExcMessage(
+                "A specified target variable for mesh adaptation is \"none\". "
+                "Please set a valid (not 'none') variable name from among: " +
+                std::string(SolverInfo::variable_names_for_param)));
+            t.variables_for_adaptation.push_back(
+              SolverInfo::to_variable_type(var));
+          }
           t.fraction_to_refine  = prm.get_double("fraction to refine");
           t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
           AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
@@ -330,6 +357,10 @@ namespace Parameters
                         "The maximum allowed grid refinement level should be "
                         "greater than or equal to the minimum allowed level."));
           t.max_n_cells = prm.get_integer("max number of cells");
+          t.n_steady_adaptation_steps =
+            adaptation.with_tree_based_adaptation() ?
+              prm.get_integer("number of steady adaptation steps") :
+              0;
           t.n_prerefinement_steps =
             prm.get_integer("number of prerefinement steps");
           t.adapt_frequency = prm.get_integer("adapt frequency");
@@ -443,15 +474,25 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void declare_postprocessing_base(
-    ParameterHandler  &prm,
-    const std::string &default_prefix = "postprocessed_data")
+  void declare_postprocessing_base(ParameterHandler &prm)
   {
     DECLARE_VERBOSITY_PARAM(prm, "verbose")
     prm.declare_entry("enable",
                       "false",
                       Patterns::Bool(),
                       "Enable/disable this postprocessing");
+    prm.declare_entry(
+      "output frequency",
+      "1",
+      Patterns::Integer(1),
+      "Frequency (in time steps) for the exportation of postprocessing files");
+  }
+
+  void declare_postprocessing_file(
+    ParameterHandler  &prm,
+    const std::string &default_prefix = "postprocessed_data")
+  {
+    declare_postprocessing_base(prm);
     prm.declare_entry("write results",
                       "true",
                       Patterns::Bool(),
@@ -460,25 +501,35 @@ namespace Parameters
                       default_prefix,
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
-    prm.declare_entry(
-      "output frequency",
-      "1",
-      Patterns::Integer(1),
-      "Frequency (in time steps) for the exportation of postprocessing files");
     prm.declare_entry("precision",
                       "6",
                       Patterns::Integer(1),
                       "Number of significant digits to print");
   }
 
-  void declare_postprocessing_boundary(ParameterHandler &prm)
+  void declare_postprocessing_file_boundary(ParameterHandler &prm)
+  {
+    declare_postprocessing_file(prm);
+    prm.declare_entry(
+      "boundary ids",
+      "",
+      Patterns::List(Patterns::Integer(0)),
+      "Comma-separated boundary ids on which this postprocessing is applied");
+  }
+
+  void declare_postprocessing_field(ParameterHandler &prm)
   {
     declare_postprocessing_base(prm);
+    prm.declare_entry("computation method",
+                      "discontinuous",
+                      Patterns::Selection(
+                        "discontinuous|l2 projection|weighted average"),
+                      "Computation method");
     prm.declare_entry(
-      "boundary id",
-      "0",
+      "degree",
+      "1",
       Patterns::Integer(0),
-      "Boundary id on which this postprocessing should be applied");
+      "Degree of the finite element representation of the postprocessed field");
   }
 
   void PostProcessing::declare_parameters(ParameterHandler &prm)
@@ -487,7 +538,7 @@ namespace Parameters
     {
       prm.enter_subsection("forces computation");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
         prm.declare_entry("computation method",
                           "stress vector",
                           Patterns::Selection(
@@ -495,14 +546,27 @@ namespace Parameters
                           "Method used to evaluate the hydrodynamic forces");
       }
       prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        declare_postprocessing_file(prm);
+        prm.declare_entry(
+          "variables",
+          "",
+          Patterns::List(Patterns::Selection(
+            std::string(SolverInfo::variable_names_for_param))),
+          "Comma-separated list of finite element variables to integrate over "
+          "the domain. Each variable is written to <output "
+          "prefix>_<variable>.txt");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
         prm.declare_entry("along which axis",
                           "z",
                           Patterns::Selection("x|y|z"),
@@ -520,7 +584,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("line probe");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
         prm.declare_entry("start point",
                           "0, 0, 0",
                           Patterns::Anything(),
@@ -537,32 +601,47 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("chns phase volume");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase center of mass");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase average velocity");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("vorticity");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("q_criterion");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        declare_postprocessing_field(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns conservation");
       {
-        declare_postprocessing_base(prm, "chns_conservation");
+        declare_postprocessing_file(prm, "chns_conservation");
       }
       prm.leave_subsection();
       prm.enter_subsection("chns energy");
       {
-        declare_postprocessing_base(prm, "chns_energy");
+        declare_postprocessing_file(prm, "chns_energy");
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase energy");
       {
-        declare_postprocessing_base(prm, "chns_phase_energy");
+        declare_postprocessing_file(prm, "chns_phase_energy");
       }
       prm.leave_subsection();
     }
@@ -574,27 +653,71 @@ namespace Parameters
   {
     READ_VERBOSITY_PARAM(prm, pp_base.verbosity)
     pp_base.enable           = prm.get_bool("enable");
-    pp_base.write_results    = prm.get_bool("write results");
-    pp_base.output_prefix    = prm.get("output prefix");
     pp_base.output_frequency = prm.get_integer("output frequency");
-    pp_base.precision        = prm.get_integer("precision");
   }
 
-  void read_postprocessing_boundary(
-    ParameterHandler                           &prm,
-    PostProcessing::PostProcessingBaseBoundary &pp_boundary)
+  void read_postprocessing_file(ParameterHandler                   &prm,
+                                PostProcessing::PostProcessingFile &pp_file)
   {
-    read_postprocessing_base(prm, pp_boundary);
-    pp_boundary.boundary_id = prm.get_integer("boundary id");
+    read_postprocessing_base(prm, pp_file);
+    pp_file.write_results = prm.get_bool("write results");
+    pp_file.output_prefix = prm.get("output prefix");
+    pp_file.precision     = prm.get_integer("precision");
+  }
+
+  void read_postprocessing_file_boundary(
+    ParameterHandler                           &prm,
+    PostProcessing::PostProcessingFileBoundary &pp_boundary)
+  {
+    read_postprocessing_file(prm, pp_boundary);
+    pp_boundary.boundary_ids =
+      Patterns::Tools::Convert<std::vector<dealii::types::boundary_id>>::to_value(
+        prm.get("boundary ids"));
+    std::sort(pp_boundary.boundary_ids.begin(), pp_boundary.boundary_ids.end());
+    AssertThrow(std::adjacent_find(pp_boundary.boundary_ids.begin(),
+                                   pp_boundary.boundary_ids.end()) ==
+                  pp_boundary.boundary_ids.end(),
+                ExcMessage("Postprocessing boundary ids must be unique."));
+  }
+
+  void read_postprocessing_field(
+    ParameterHandler                                  &prm,
+    PostProcessing::PostProcessingField               &pp_field,
+    const PostProcessingTools::PostprocessorAtDofTypes type,
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessing::PostProcessingField *>   &field_postprocessors)
+  {
+    // Add this field postprocessor to the map
+    field_postprocessors.insert({type, &pp_field});
+
+    read_postprocessing_base(prm, pp_field);
+
+    const std::string parsed_method = prm.get("computation method");
+    if (parsed_method == "discontinuous")
+      pp_field.method =
+        PostProcessing::PostProcessingField::ComputationMethod::discontinuous;
+    else if (parsed_method == "l2 projection")
+      pp_field.method =
+        PostProcessing::PostProcessingField::ComputationMethod::l2_projection;
+    else if (parsed_method == "weighted average")
+      pp_field.method = PostProcessing::PostProcessingField::ComputationMethod::
+        weighted_average;
+    else
+      AssertThrow(false,
+                  ExcMessage("Unknown vorticity computation method: " +
+                             parsed_method));
+    pp_field.degree = prm.get_integer("degree");
   }
 
   void PostProcessing::read_parameters(ParameterHandler &prm)
   {
+    using FieldPP = PostProcessingTools::PostprocessorAtDofTypes;
+
     prm.enter_subsection("Postprocessing");
     {
       prm.enter_subsection("forces computation");
       {
-        read_postprocessing_boundary(prm, forces);
+        read_postprocessing_file_boundary(prm, forces);
         const std::string parsed_method = prm.get("computation method");
         if (parsed_method == "stress vector")
           forces.method = Forces::ComputationMethod::stress_vector;
@@ -602,14 +725,43 @@ namespace Parameters
           forces.method = Forces::ComputationMethod::lagrange_multiplier;
       }
       prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        read_postprocessing_file(prm, field_integral);
+        auto variable_names =
+          Utilities::split_string_list(prm.get("variables"));
+        AssertThrow(!field_integral.enable || !variable_names.empty(),
+                    ExcMessage("At least one variable must be selected when "
+                               "field integral postprocessing is enabled"));
+        for (const auto &name : variable_names)
+          AssertThrow(name != "none",
+                      ExcMessage(
+                        "Field integral variables must not be 'none'"));
+        std::sort(variable_names.begin(), variable_names.end());
+        variable_names.erase(std::unique(variable_names.begin(),
+                                         variable_names.end()),
+                             variable_names.end());
+        field_integral.variables.resize(variable_names.size());
+        std::transform(variable_names.begin(),
+                       variable_names.end(),
+                       field_integral.variables.begin(),
+                       SolverInfo::to_variable_type);
+      }
+      prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        read_postprocessing_boundary(prm, structure_position);
+        read_postprocessing_file_boundary(prm, structure_position);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        read_postprocessing_boundary(prm, slices);
+        read_postprocessing_file_boundary(prm, slices);
+        const auto &v = forces.boundary_ids;
+        for (const auto id : slices.boundary_ids)
+          AssertThrow(std::find(v.begin(), v.end(), id) != v.end(),
+                      ExcMessage(
+                        "Every sliced boundary must also appear in the "
+                        "force boundary ids."));
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
@@ -617,7 +769,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("line probe");
       {
-        read_postprocessing_base(prm, line_probe);
+        read_postprocessing_file(prm, line_probe);
         line_probe.start = Utilities::string_to_double(
           Utilities::split_string_list(prm.get("start point"), ","));
         line_probe.end = Utilities::string_to_double(
@@ -627,32 +779,56 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("chns phase volume");
       {
-        read_postprocessing_base(prm, chns_volumes);
+        read_postprocessing_file(prm, chns_volumes);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase center of mass");
       {
-        read_postprocessing_base(prm, chns_center_mass);
+        read_postprocessing_file(prm, chns_center_mass);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase average velocity");
       {
-        read_postprocessing_base(prm, chns_avg_velocity);
+        read_postprocessing_file(prm, chns_avg_velocity);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("vorticity");
+      {
+        read_postprocessing_field(prm,
+                                  vorticity,
+                                  FieldPP::vorticity,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("q_criterion");
+      {
+        read_postprocessing_field(prm,
+                                  q_criterion,
+                                  FieldPP::q_criterion,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        read_postprocessing_field(prm,
+                                  mesh_velocity,
+                                  FieldPP::mesh_velocity,
+                                  field_postprocessors);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns conservation");
       {
-        read_postprocessing_base(prm, chns_conservation);
+        read_postprocessing_file(prm, chns_conservation);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns energy");
       {
-        read_postprocessing_base(prm, chns_energy);
+        read_postprocessing_file(prm, chns_energy);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase energy");
       {
-        read_postprocessing_base(prm, chns_phase_energy);
+        read_postprocessing_file(prm, chns_phase_energy);
       }
       prm.leave_subsection();
     }
@@ -1142,14 +1318,41 @@ namespace Parameters
                         "direct_mumps",
                         Patterns::Selection("direct_mumps|cg|gmres"),
                         "Method");
-      prm.declare_entry("tolerance",
+      prm.declare_entry("preconditioner",
+                        "none",
+                        Patterns::Selection("none|ilu|block_jacobi|amg"),
+                        "Method");
+      prm.declare_entry("absolute tolerance",
+                        "1e-12",
+                        Patterns::Double(0.),
+                        "Absolute tolerance for iterative solver. The solver "
+                        "stops when the residual norm is below this value, or "
+                        "below the relative tolerance times the initial "
+                        "residual norm.");
+      prm.declare_entry("relative tolerance",
                         "1e-6",
-                        Patterns::Double(),
-                        "Tolerance for iterative solver");
+                        Patterns::Double(0.),
+                        "Relative tolerance for iterative solver, with respect "
+                        "to the initial residual norm (the norm of the "
+                        "right-hand side, since the initial guess is zero). "
+                        "Set to 0 to use only the absolute tolerance.");
       prm.declare_entry("max iterations",
                         "100",
                         Patterns::Integer(),
                         "Max number of outer iterations for iterative solver");
+      prm.declare_entry("max krylov vectors",
+                        "100",
+                        Patterns::Integer(1),
+                        "Number of Krylov vectors stored before restarting "
+                        "GMRES (restart length). Unused by CG.");
+      prm.declare_entry("right preconditioning",
+                        "true",
+                        Patterns::Bool(),
+                        "Use right preconditioning for GMRES, so that the "
+                        "tolerances apply to the true (unpreconditioned) "
+                        "residual. If false, left preconditioning is used and "
+                        "the tolerances apply to the preconditioned residual. "
+                        "Unused by CG.");
       prm.declare_entry("ilu fill level",
                         "0",
                         Patterns::Integer(),
@@ -1175,10 +1378,28 @@ namespace Parameters
           method = Method::cg;
         else if (parsed_method == "gmres")
           method = Method::gmres;
-        tolerance      = prm.get_double("tolerance");
-        max_iterations = prm.get_integer("max iterations");
-        ilu_fill_level = prm.get_integer("ilu fill level");
-        reuse          = prm.get_bool("reuse");
+
+        const std::string parsed_prec = prm.get("preconditioner");
+        if (parsed_prec == "none")
+          preconditioner = PreconditionerType::none;
+        else if (parsed_prec == "ilu")
+          preconditioner = PreconditionerType::ilu;
+        else if (parsed_prec == "block_jacobi")
+          preconditioner = PreconditionerType::block_jacobi;
+        else if (parsed_prec == "amg")
+          preconditioner = PreconditionerType::amg;
+        else
+          AssertThrow(false,
+                      ExcMessage("Unknown preconditioner type: " +
+                                 parsed_prec));
+
+        absolute_tolerance    = prm.get_double("absolute tolerance");
+        relative_tolerance    = prm.get_double("relative tolerance");
+        max_iterations        = prm.get_integer("max iterations");
+        max_krylov_vectors    = prm.get_integer("max krylov vectors");
+        right_preconditioning = prm.get_bool("right preconditioning");
+        ilu_fill_level        = prm.get_integer("ilu fill level");
+        reuse                 = prm.get_bool("reuse");
         READ_VERBOSITY_PARAM(prm, verbosity)
       }
       prm.leave_subsection();

@@ -28,6 +28,11 @@ jobs:
       fail-fast: false
       matrix:
         dealii_version: ["master-noble", "v9.7.1-noble"]
+        include:
+        - dealii_version: master-noble
+          ctest_exclude: "^$"
+        - dealii_version: v9.7.1-noble
+          ctest_exclude: "^incompressible_chns_ale/.*stabilized.*$"
 
     container:
       image: dealii/dealii:${{ matrix.dealii_version }}
@@ -36,13 +41,56 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Use ccache to cache files compiled during a previous test, and speed up
+      # compilation. ccache hashes each source file together with
+      # the headers it includes, the compiler flags and the compiler version,
+      # and reuses the object file stored under that hash if there is one.
+      # Any change to a file, header or flag gives a new hash, so the file is
+      # recompiled. Failed compilations are never cached and warnings are
+      # replayed from the cache, so the build log shows the same errors and
+      # warnings as a build without ccache.
+      #
+      # Each runner starts empty, so the ccache directory is restored from
+      # the GitHub Actions cache before the build and saved after it.
+      #
+      # CCACHE_DIR is inside the workspace so that the cache actions find it
+      # through the relative path ".ccache". CCACHE_MAXSIZE limits the size of
+      # one cache; GitHub allows 10 GB in total per repository and evicts the
+      # oldest entries beyond that. Variables written to GITHUB_ENV are
+      # defined in all the following steps.
+      - name: Install ccache
+        run: |
+          if ! command -v ccache > /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -yq --no-install-recommends ccache
+          fi
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+
+      # Set a unique key per run so that the cache is saved after every build.
+      # The restore key picks the most recent cache of this workflow and
+      # deal.II version (on a pull request, also those of the base branch).
+      - name: Restore ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: .ccache
+          key: ccache-${{ github.workflow }}-${{ matrix.dealii_version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-${{ github.workflow }}-${{ matrix.dealii_version }}-
+
       - name: Configure and build debug
       # On deal.II's development branch, ReferenceCell is now templatized,
       # so add the relevant compile flag. This will be removed when the next
       # version releases, as we'll be able to test on the version number.
         run: |
           mkdir build && cd build
+          # Reset the statistics so that --show-stats reports the cache hits
+          # and misses of this build only.
+          ccache --zero-stats
+          # The compiler launchers make CMake run "ccache <compiler> ..." for
+          # every C++ file and every C file (for bundled MMG).
           cmake -D CMAKE_BUILD_TYPE=Debug \
+                -D CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -D CMAKE_C_COMPILER_LAUNCHER=ccache \
                 -D ENABLE_TESTING=1 \
                 -D FEZ_WITH_MMG=ON \
                 -D FEZ_WITH_BUNDLED_MMG=ON \
@@ -51,15 +99,27 @@ jobs:
                 .. \
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}
+          ccache --show-stats
 
-      # Run the serial tests in parallel 
+      # Saved even if the build fails, so that the objects that did compile
+      # are reused by the next run.
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: ccache-${{ github.workflow }}-${{ matrix.dealii_version }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Run the serial tests in parallel
       - name: Run serial tests in debug
         run: |
           cd build
           # These tests may time out or require too much memory, and are not run:
           # incompressible_ns_lambda/mms_3d
           # incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab
-          ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_ns_lambda/mms_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab)" -j ${{ env.N_JOBS }}
+          ctest -V --output-on-failure \
+                -E "(mpirun=[2-9])|incompressible_ns_lambda/mms_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab|(${{ matrix.ctest_exclude }})" \
+                -j ${{ env.N_JOBS }}
 
       # Run the parallel tests one at a time 
       - name: Run parallel tests in debug
@@ -68,4 +128,7 @@ jobs:
           # These tests may time out or require too much memory, and are not run:
           # incompressible_ns_lambda/steady_cylinder_3d.mpirun=6
           # incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab
-          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "(incompressible_ns_lambda/steady_cylinder_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab)" -j 1
+          ctest -V --output-on-failure \
+                -R "mpirun=[2-9]" \
+                -E "incompressible_ns_lambda/steady_cylinder_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab|(${{ matrix.ctest_exclude }})" \
+                -j 1

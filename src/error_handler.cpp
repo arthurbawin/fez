@@ -150,8 +150,8 @@ ErrorHandler::add_reference_data(const TimeHandler &,
                                  const DoFHandler<3> &,
                                  const bool);
 
-void ErrorHandler::add_reference_data(const std::string &name,
-                                      const unsigned int value)
+void ErrorHandler::add_reference_data(const std::string  &name,
+                                      const std::uint64_t value)
 {
   error_table.add_value(name, value);
 }

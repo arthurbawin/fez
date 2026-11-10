@@ -90,11 +90,6 @@ public:
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
 
-  void assemble_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData                                          &scratchData,
-    CopyData                                             &copy_data);
-
   /**
    * Assemble the element-wise matrix computed with assemble_local_matrix
    * into the global matrix. Passed to WorkStream::run (see above).
@@ -167,6 +162,7 @@ protected:
 
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       source_terms.set_time(new_time);
     }
 
@@ -206,6 +202,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -282,6 +279,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 

@@ -74,8 +74,8 @@ endmacro()
 message(STATUS)
 message(STATUS "Detecting Eigen")
 set(EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/contrib/eigen)
-include_directories(${EIGEN3_INCLUDE_DIR})
-include_directories(${EIGEN3_INCLUDE_DIR}/unsupported)
+include_directories(SYSTEM ${EIGEN3_INCLUDE_DIR})
+include_directories(SYSTEM ${EIGEN3_INCLUDE_DIR}/unsupported)
 message(STATUS "\tEigen sucessfully set up from contrib/eigen")
 
 # Mmg
@@ -87,6 +87,22 @@ if(FEZ_WITH_MMG)
     add_subdirectory(contrib/mmg_v5_8_0)
     include_directories(contrib/mmg_v5_8_0)
     include_directories(contrib/mmg_v5_8_0/src/common)
+    # MMG is quite sensitive to metric tensors roundoff. For the tests,
+    # disable the contraction of floating-point expressions into fused
+    # multiply-adds (on by default with Clang on arm64), so that MMG performs
+    # the same IEEE-754 operations on all platforms and the adapted meshes
+    # match the reference outputs.
+    # Since the tests run the solvers, and link to the MMG compiled into libfez,
+    # this applies to the whole build when testing is enabled.
+    # The source properties are set here, in the directory that defines the
+    # fez target, since source properties are directory-scoped.
+    if(ENABLE_TESTING AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+      set(MMG_SRC_FILES ${CONTRIB_SRC_FILES})
+      list(FILTER MMG_SRC_FILES INCLUDE REGEX "mmg_v5_8_0/.*\\.(c|cpp)$")
+      set_source_files_properties(${MMG_SRC_FILES}
+        PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+      message(STATUS "\tCompiling MMG with -ffp-contract=off")
+    endif()
     message(STATUS "\tMMG successfully set up from contrib/mmg_v5_8_0")
   else()
     message(STATUS "\tUsing system version of MMG")

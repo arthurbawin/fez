@@ -3,12 +3,15 @@
 
 #include <components_ordering.h>
 #include <deal.II/base/table_handler.h>
+#include <deal.II/base/timer.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/data_postprocessor.h>
+#include <field_postprocessors.h>
 #include <parameter_reader.h>
 #include <parameters.h>
 #include <post_processing_tools.h>
@@ -91,7 +94,8 @@ public:
    * outputting fields. Since deal.II's add_data_vector(...) functions already
    * check that the dof_handler is non-empty, this is not checked here.
    */
-  PostProcessingHandler(const ParameterReader<dim> &param,
+  PostProcessingHandler(const ComponentOrdering    &ordering,
+                        const ParameterReader<dim> &param,
                         const Triangulation<dim>   &triangulation,
                         const DoFHandler<dim>      &dof_handler,
                         const std::vector<std::pair<std::string, unsigned int>>
@@ -116,6 +120,17 @@ public:
                                        const DoFHandler<dim>    &dof_handler);
 
   /**
+   * (Re-)create the dof-based postprocessors, stored in field_postprocessors.
+   *
+   * As for the function above, this function must be called whenever the mesh
+   * and dof handler changed, i.e., after mesh adaptation.
+   */
+  void create_field_postprocessors(const ParameterReader<dim> &param,
+                                   const Mapping<dim>         &mapping,
+                                   const Quadrature<dim>      &cell_quadrature,
+                                   const bool with_moving_mesh);
+
+  /**
    * Add a cell-based vector of data associated to a field with name "name" to
    * the underlying DataOut object. The vector data should have a size equal to
    * the number of mesh elements on this partitions, e.g., by reinit'ing the
@@ -134,6 +149,23 @@ public:
 
   void add_cell_dg0_data_field(
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field);
+
+  /**
+   * Add a dof-based vector of data to the underlying DataOut. Unlike the
+   * function above, here an arbitrary dof_handler can be given, to assign data
+   * associated with a different field as the one described by the dof_handler
+   * associated with this object.
+   *
+   * This function simply forwards the call to the deal.II function with the
+   * same signature.
+   */
+  template <typename VectorType>
+  void add_data_vector(
+    const DoFHandler<dim>          &dof_handler,
+    const VectorType               &data,
+    const std::vector<std::string> &names,
+    const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      &data_component_interpretation);
 
   /**
    * Output the fields stored in solution, both in the volume and on the
@@ -173,6 +205,28 @@ public:
    * run.
    */
   void restore_pvd_entries_until_time(double max_time);
+
+  /**
+   * Calls the postprocess() function for each of the dof-based postprocessor
+   * stored in field_postprocessors, and adds the computed data to the
+   * underlying DataOut.
+   *
+   * Some of the fields computed with this function involve a nontrivial compute
+   * time (e.g., assemble a mass matrix and rhs, and solve an L2 projection
+   * problem). Although they are still much cheaper than the main resolved
+   * physics, you might want to set a compute frequency to avoid computing these
+   * fields at each time step. To avoid writing visualization files where these
+   * fields are present only at the time steps where they were computed,
+   * however, their postprocessed field is exported at each step, i.e., the same
+   * field is written until it has been computed again, at a time step that
+   * matches the prescribed frequency.
+   */
+  template <typename VectorType>
+  void compute_field_postprocessors(
+    TimerOutput                   &timer,
+    const VectorType              &solution,
+    const std::vector<VectorType> &previous_solutions,
+    const TimeHandler             &time_handler);
 
   /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
@@ -239,6 +293,16 @@ public:
                                      const Quadrature<dim>   &quadrature,
                                      const VectorType        &solution,
                                      const TimeHandler       &time_handler);
+
+  /**
+   * Compute the volume integrals of the finite element variables selected
+   * in the field integral postprocessing parameters.
+   */
+  template <typename VectorType>
+  void compute_field_integrals(const Mapping<dim>    &mapping,
+                               const Quadrature<dim> &quadrature,
+                               const VectorType      &solution,
+                               const TimeHandler     &time_handler);
 
   /**
    * Reset the underlying data and vectors.
@@ -339,18 +403,46 @@ public:
 
 private:
   /**
+   * Returns a unique pointer to a newly created object deriving from
+   * PostprocessofAtDofBase.
+   * The exact derived class of the created object is determined by both @p type
+   * and the associated parameters in param.postprocessing.
+   */
+  std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+  create_field_postprocessor(
+    const PostProcessingTools::PostprocessorAtDofTypes type,
+    const ParameterReader<dim>                        &param,
+    const Mapping<dim>                                &mapping,
+    const Quadrature<dim>                             &cell_quadrature,
+    const bool                                         with_moving_mesh);
+
+  /**
    * Return true if the passed postprocessing should be output at this time
    * step.
    */
   bool should_output_postprocessing(
     const TimeHandler                                    &time_handler,
-    const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+    const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
   {
-    return postproc_base.enable && postproc_base.write_results &&
+    return postproc_file.enable && postproc_file.write_results &&
            (time_handler.current_time_iteration %
-                postproc_base.output_frequency ==
+                postproc_file.output_frequency ==
               0 ||
             time_handler.is_finished());
+  }
+
+  /**
+   * Return true if the passed dof-based postprocessing should be computed at
+   * this time step.
+   */
+  bool should_compute_postprocessing(
+    const TimeHandler                                    &time_handler,
+    const Parameters::PostProcessing::PostProcessingBase &postprocessing) const
+  {
+    return postprocessing.enable and (time_handler.current_time_iteration %
+                                          postprocessing.output_frequency ==
+                                        0 ||
+                                      time_handler.is_finished());
   }
 
   /**
@@ -380,18 +472,20 @@ private:
    * Add the computed forces to the passed table with required formatting.
    */
   void add_force_to_table(
-    const Tensor<1, dim> &forces,
-    const TimeHandler    &time_handler,
-    TableHandler         &force_table,
-    const unsigned int    i_slice = numbers::invalid_unsigned_int);
+    const Tensor<1, dim>    &forces,
+    const TimeHandler       &time_handler,
+    TableHandler            &force_table,
+    const types::boundary_id boundary_id,
+    const unsigned int       i_slice = numbers::invalid_unsigned_int);
 
   /**
    * Add the computed position of the structure's geometric center to the passed
    * table with required formatting.
    */
-  void add_position_to_table(const Tensor<1, dim> &center_position,
-                             const TimeHandler    &time_handler,
-                             TableHandler         &position_table);
+  void add_position_to_table(const Tensor<1, dim>    &center_position,
+                             const TimeHandler       &time_handler,
+                             TableHandler            &position_table,
+                             const types::boundary_id boundary_id);
 
   /**
    * Add data available for each fluid phase to @p table, according to the
@@ -404,7 +498,7 @@ private:
     const std::array<DataType, 2>                        &data_for_phases,
     const TimeHandler                                    &time_handler,
     TableHandler                                         &table,
-    const Parameters::PostProcessing::PostProcessingBase &pp_param);
+    const Parameters::PostProcessing::PostProcessingFile &pp_param);
 
   /**
    * Write the given table to the out stream.
@@ -412,7 +506,7 @@ private:
   void write_table(
     std::ostream                                         &out,
     const TableHandler                                   &table,
-    const Parameters::PostProcessing::PostProcessingBase &postproc_base) const;
+    const Parameters::PostProcessing::PostProcessingFile &postproc_file) const;
 
   void remove_visualization_record(
     std::vector<std::pair<double, std::string>> &visualization_records,
@@ -425,6 +519,8 @@ private:
   void create_slices();
 
 private:
+  const ComponentOrdering &ordering;
+
   const Parameters::PostProcessing          &post_proc_param;
   const Parameters::Output                  &output_param;
   const Parameters::PhysicalProperties<dim> &physical_properties;
@@ -460,6 +556,17 @@ private:
   // Subdomain (partition) IDs
   Vector<float> subdomains;
 
+  // Postprocessors derived from deal.II's DataPostprocessor,
+  // which evaluate a postprocessed quantity directly at the visualization nodes
+  std::vector<std::unique_ptr<DataPostprocessor<dim>>> postprocessors;
+
+  // Postprocessors derived from PostprocessorAtDofBase, which compute a field
+  // defined at the dofs. These dofs are typically different from the dofs of
+  // the main solver's dof_handler
+  std::map<PostProcessingTools::PostprocessorAtDofTypes,
+           std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>>
+    field_postprocessors;
+
   // Forces on the prescribed boundary, and on each slice if enabled
   TableHandler  forces_table;
   Vector<float> slice_indices;
@@ -471,6 +578,8 @@ private:
 
   std::vector<std::unique_ptr<PostProcessingTools::DG0DataField<dim>>>
     auxiliary_cell_dg0_fields;
+  // Volume integrals of the selected finite element variables
+  std::map<SolverInfo::VariableType, TableHandler> field_integral_tables;
 
   // For multiphase flows: volume occupied by each phase
   TableHandler volume_of_phases;
@@ -513,7 +622,8 @@ void PostProcessingHandler<dim>::PrefixData::append_to_prefix_or_suffix(
 
   if (is_prerefinement_step)
     prefix_or_suffix +=
-      "_prerefinement_step_" + std::to_string(prerefinement_step);
+      is_for_pvd ? "_prerefinement_steps" :
+                   "_prerefinement_step_" + std::to_string(prerefinement_step);
 }
 
 template <int dim>
@@ -546,6 +656,19 @@ void PostProcessingHandler<dim>::add_cell_dg0_data_field(
 
   PostProcessingTools::add_dg0_data_field(*data_out, *field);
   auxiliary_cell_dg0_fields.push_back(std::move(field));
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::add_data_vector(
+  const DoFHandler<dim>          &dof_handler,
+  const VectorType               &data,
+  const std::vector<std::string> &names,
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+{
+  // Simply forward the call to the deal.II function
+  data_out->add_data_vector(dof_handler, data, names, component_interpretation);
 }
 
 template <int dim>
@@ -597,6 +720,10 @@ void PostProcessingHandler<dim>::output_volume_fields(
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
   data_out->add_data_vector(subdomains, "subdomain");
+
+  // Output all the DataPostprocessors
+  for (const auto &postprocessor : postprocessors)
+    data_out->add_data_vector(solution, *postprocessor);
 
   data_out->build_patches(mapping,
                           output_param.n_subdivisions,
@@ -694,7 +821,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
   if (post_proc_param.slices.enable)
   {
     data_out_skin->add_data_vector(slice_indices,
-                                   "slice index",
+                                   "slice_index",
                                    DataOutFaces<dim>::type_cell_data);
   }
   data_out_skin->build_patches(mapping, output_param.n_subdivisions);
@@ -777,59 +904,93 @@ void PostProcessingHandler<dim>::compute_forces(
   const auto &forces_param = post_proc_param.forces;
   using Forces             = Parameters::PostProcessing::Forces;
 
-  Tensor<1, dim> forces;
-  std::string    method = "";
+  std::string method = "";
 
+  // Local face forces, retained for each boundary to compute its slices.
   std::vector<Tensor<1, dim>> force_per_face(
     dof_handler.get_triangulation().n_faces());
 
-  switch (forces_param.method)
-  {
-    case Forces::ComputationMethod::stress_vector:
-    {
-      method = "stress_vector";
-      const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
-      const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
+  const auto compute_on_boundary =
+    [&](const types::boundary_id     boundary_id,
+        std::vector<Tensor<1, dim>> &force_per_face) {
+      Tensor<1, dim> forces;
+      switch (forces_param.method)
+      {
+        case Forces::ComputationMethod::stress_vector:
+        {
+          method = "stress_vector";
+          const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
+          const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
 
-      // FIXME: take viscosity of the mixture in CHNS
-      const double mu = physical_properties.fluids[0].dynamic_viscosity;
+          /**
+           * Depending on the model solved in each solver, the pressure is
+           * scaled by either the fluid density, or is modified (in the
+           * Cahn-Hilliard solver), and must be postprocessed to recover the
+           * true pressure for force evaluation.
+           *
+           * FIXME1: the pressure scale below currently handles only the NS
+           * solvers. Each solver should provide a routine to recover the true
+           * pressure
+           *
+           * FIXME2: we must take the density and viscosity of the mixture for
+           * CHNS solvers
+           */
 
-      forces = PostProcessingTools::compute_forces_on_boundary(
-        dof_handler,
-        mapping,
-        face_quadrature,
-        solution,
-        forces_param.boundary_id,
-        velocity_extractor,
-        pressure_extractor,
-        mu,
-        force_per_face);
-      break;
-    }
-    case Forces::ComputationMethod::lagrange_multiplier:
-    {
-      method = "lagrange_multiplier";
-      AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
-                  ExcMessage(
-                    "Cannot compute forces with a Lagrange multiplier "
-                    "because the chosen "
-                    "solver does not have a Lagrange multiplier variable."));
+          AssertThrow(
+            !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
+            ExcMessage(
+              "Force computation must be modified for the Cahn-Hilliard "
+              "solver. It must recover the true pressure from the computed "
+              "one, and use the density and viscosity of the mixture."));
 
-      const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
-      forces = PostProcessingTools::
-        compute_forces_on_boundary_with_lagrange_multiplier(
-          dof_handler,
-          mapping,
-          face_quadrature,
-          solution,
-          forces_param.boundary_id,
-          lambda_extractor,
-          force_per_face);
-      break;
-    }
-    default:
-      DEAL_II_NOT_IMPLEMENTED();
-  }
+          const double pressure_scale = physical_properties.fluids[0].density;
+          const double mu = physical_properties.fluids[0].dynamic_viscosity;
+
+          forces =
+            PostProcessingTools::compute_forces_on_boundary(dof_handler,
+                                                            mapping,
+                                                            face_quadrature,
+                                                            solution,
+                                                            boundary_id,
+                                                            velocity_extractor,
+                                                            pressure_extractor,
+                                                            pressure_scale,
+                                                            mu,
+                                                            force_per_face);
+          break;
+        }
+        case Forces::ComputationMethod::lagrange_multiplier:
+        {
+          method = "lagrange_multiplier";
+          AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
+                      ExcMessage(
+                        "Cannot compute forces with a Lagrange multiplier "
+                        "because the chosen solver does not have a Lagrange "
+                        "multiplier variable."));
+
+          const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
+          const double rho = physical_properties.fluids[0].density;
+          forces           = PostProcessingTools::
+            compute_forces_on_boundary_with_lagrange_multiplier(
+              dof_handler,
+              mapping,
+              face_quadrature,
+              solution,
+              boundary_id,
+              lambda_extractor,
+              rho,
+              force_per_face);
+          break;
+        }
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+      return forces;
+    };
+
+  std::map<types::boundary_id, Tensor<1, dim>> forces_per_boundary;
+  for (const auto id : forces_param.boundary_ids)
+    forces_per_boundary.emplace(id, compute_on_boundary(id, force_per_face));
 
   if (forces_param.verbosity == Parameters::Verbosity::verbose && mpi_rank == 0)
   {
@@ -839,10 +1000,13 @@ void PostProcessingHandler<dim>::compute_forces(
     std::vector<std::string> dim_str = {"x", "y", "z"};
     std::cout << std::scientific << std::setprecision(forces_param.precision)
               << std::showpos << std::endl;
-    std::cout << "Forces on boundary with id " << forces_param.boundary_id
-              << " computed with method : " << method << std::endl;
-    for (unsigned int d = 0; d < dim; ++d)
-      std::cout << "F" + dim_str[d] << " = " << forces[d] << std::endl;
+    for (const auto &[id, force] : forces_per_boundary)
+    {
+      std::cout << "Forces on boundary with id " << id
+                << " computed with method : " << method << std::endl;
+      for (unsigned int d = 0; d < dim; ++d)
+        std::cout << "F" + dim_str[d] << " = " << force[d] << std::endl;
+    }
 
     std::cout.precision(old_precision);
     std::cout.flags(old_flags);
@@ -850,7 +1014,9 @@ void PostProcessingHandler<dim>::compute_forces(
 
   // Add forces to forces table and write if time step matches frequency
   {
-    add_force_to_table(forces, time_handler, forces_table);
+    for (const auto &[id, force] : forces_per_boundary)
+      add_force_to_table(force, time_handler, forces_table, id);
+
     if (mpi_rank == 0 && should_output_forces(time_handler))
     {
       std::ofstream outfile(output_param.output_dir +
@@ -863,49 +1029,67 @@ void PostProcessingHandler<dim>::compute_forces(
   const auto &slices_param = post_proc_param.slices;
   if (slices_param.enable && slices_param.compute_forces_on_slices)
   {
-    std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
-    std::vector<Tensor<1, dim>> forces_per_slice = forces_per_slice_local;
-
-    for (const auto &face : triangulation->active_face_iterators())
+    for (const auto id : slices_param.boundary_ids)
     {
-      if (face->user_index() != numbers::invalid_unsigned_int)
-        forces_per_slice_local[face->user_index()] +=
-          force_per_face[face->index()];
-    }
+      std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
+      std::vector<Tensor<1, dim>> forces_per_slice(slices_param.n_slices);
 
-    for (unsigned int i = 0; i < slices_param.n_slices; ++i)
-    {
-      forces_per_slice[i] =
-        Utilities::MPI::sum(forces_per_slice_local[i],
-                            dof_handler.get_mpi_communicator());
-      add_force_to_table(forces_per_slice[i],
-                         time_handler,
-                         forces_table_per_slice,
-                         i);
-    }
+      for (const auto &cell : dof_handler.active_cell_iterators())
+        if (cell->is_locally_owned())
+          for (const auto &face : cell->face_iterators())
+            if (face->at_boundary() && face->boundary_id() == id)
+            {
+              AssertIndexRange(face->user_index(), slices_param.n_slices);
+              forces_per_slice_local[face->user_index()] +=
+                force_per_face[face->index()];
+            }
 
-    if (forces_param.verbosity == Parameters::Verbosity::verbose &&
-        mpi_rank == 0)
-    {
-      std::ios::fmtflags old_flags     = std::cout.flags();
-      unsigned int       old_precision = std::cout.precision();
-
-      std::vector<std::string> dim_str = {"x", "y", "z"};
-      std::cout << std::scientific << std::setprecision(forces_param.precision)
-                << std::showpos << std::endl;
-      std::cout << "Forces per slice on boundary with id "
-                << forces_param.boundary_id << ":" << std::endl;
       for (unsigned int i = 0; i < slices_param.n_slices; ++i)
       {
-        std::cout << "Slice " << i << ": ";
-        for (unsigned int d = 0; d < dim; ++d)
-          std::cout << "F" + dim_str[d] << " = " << forces_per_slice[i][d]
-                    << "\t";
-        std::cout << std::endl;
+        forces_per_slice[i] =
+          Utilities::MPI::sum(forces_per_slice_local[i],
+                              dof_handler.get_mpi_communicator());
+        add_force_to_table(
+          forces_per_slice[i], time_handler, forces_table_per_slice, id, i);
       }
 
-      std::cout.precision(old_precision);
-      std::cout.flags(old_flags);
+      if (forces_param.verbosity == Parameters::Verbosity::verbose &&
+          mpi_rank == 0)
+      {
+        std::ios::fmtflags old_flags     = std::cout.flags();
+        unsigned int       old_precision = std::cout.precision();
+
+        std::vector<std::string> dim_str = {"x", "y", "z"};
+        std::cout << std::scientific
+                  << std::setprecision(forces_param.precision) << std::showpos
+                  << std::endl;
+        std::cout << "Forces per slice on boundary with id " << id << ":"
+                  << std::endl;
+        for (unsigned int i = 0; i < slices_param.n_slices; ++i)
+        {
+          std::cout << "Slice " << i << ": ";
+          for (unsigned int d = 0; d < dim; ++d)
+            std::cout << "F" + dim_str[d] << " = " << forces_per_slice[i][d]
+                      << "\t";
+          std::cout << std::endl;
+        }
+
+        std::cout.precision(old_precision);
+        std::cout.flags(old_flags);
+      }
+
+      // Check that sum of forces on slices is the force on boundary
+      {
+        Tensor<1, dim> sum_slices;
+        for (const auto &f : forces_per_slice)
+          sum_slices += f;
+
+        AssertThrow((forces_per_boundary.at(id) - sum_slices).norm_square() <
+                      1e-14,
+                    ExcMessage(
+                      "Sum of forces on slices does not match the total "
+                      "forces on this boundary"));
+      }
     }
 
     // Write to file
@@ -919,17 +1103,41 @@ void PostProcessingHandler<dim>::compute_forces(
                   forces_table_per_slice,
                   post_proc_param.forces);
     }
-
-    // Check that sum of forces on slices is the force on boundary
-    {
-      Tensor<1, dim> sum_slices;
-      for (const auto &f : forces_per_slice)
-        sum_slices += f;
-      AssertThrow((forces - sum_slices).norm_square() < 1e-14,
-                  ExcMessage("Sum of forces on slices does not match the total "
-                             "forces on this boundary"));
-    }
   }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_field_postprocessors(
+  TimerOutput                   &timer,
+  const VectorType              &solution,
+  const std::vector<VectorType> &previous_solutions,
+  const TimeHandler             &time_handler)
+{
+  // Loop over all recorded field postprocessors
+  for (const auto &[type, postprocessor_param_ptr] :
+       post_proc_param.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
+    {
+      // Postprocess the solution and add data to DataOut
+      const auto &ptr = field_postprocessors.at(type);
+      if (ptr && should_output_volume_fields(time_handler))
+      {
+        if (should_compute_postprocessing(time_handler,
+                                          *postprocessor_param_ptr))
+        {
+          TimerOutput::Scope t(timer,
+                               "Compute " +
+                                 PostProcessingTools::to_string(type));
+          ptr->postprocess(solution, previous_solutions, time_handler);
+        }
+
+        // Always write the last computed field to the visualization file, to
+        // avoid alternating between frames with and without this field if the
+        // compute frequency is > 1.
+        ptr->add_data(*this);
+      }
+    }
 }
 
 template <int dim>
@@ -950,38 +1158,43 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
 
   const FEValuesExtractors::Vector position_extractor(ordering.x_lower);
 
-  const Tensor<1, dim> mean_position =
-    PostProcessingTools::compute_vector_mean_value_on_boundary(
-      mapping,
-      dof_handler,
-      face_quadrature,
-      solution,
-      post_proc_param.structure_position.boundary_id,
-      position_extractor);
-
   const auto &position_param = post_proc_param.structure_position;
-  if (position_param.verbosity == Parameters::Verbosity::verbose &&
-      mpi_rank == 0)
+  for (const auto id : position_param.boundary_ids)
   {
-    std::ios::fmtflags old_flags     = std::cout.flags();
-    unsigned int       old_precision = std::cout.precision();
+    const Tensor<1, dim> mean_position =
+      PostProcessingTools::compute_vector_mean_value_on_boundary(
+        mapping,
+        dof_handler,
+        face_quadrature,
+        solution,
+        id,
+        position_extractor);
 
-    std::vector<std::string> dim_str = {"x", "y", "z"};
-    std::cout << std::scientific << std::setprecision(position_param.precision)
-              << std::showpos << std::endl;
-    std::cout << "Mean position (geometric center) on boundary with id "
-              << position_param.boundary_id << ":" << std::endl;
-    for (unsigned int d = 0; d < dim; ++d)
-      std::cout << dim_str[d] << " = " << mean_position[d] << std::endl;
+    if (position_param.verbosity == Parameters::Verbosity::verbose &&
+        mpi_rank == 0)
+    {
+      std::ios::fmtflags old_flags     = std::cout.flags();
+      unsigned int       old_precision = std::cout.precision();
 
-    std::cout.precision(old_precision);
-    std::cout.flags(old_flags);
+      std::vector<std::string> dim_str = {"x", "y", "z"};
+      std::cout << std::scientific
+                << std::setprecision(position_param.precision) << std::showpos
+                << std::endl;
+      std::cout << "Mean position (geometric center) on boundary with id " << id
+                << ":" << std::endl;
+      for (unsigned int d = 0; d < dim; ++d)
+        std::cout << dim_str[d] << " = " << mean_position[d] << std::endl;
+
+      std::cout.precision(old_precision);
+      std::cout.flags(old_flags);
+    }
+
+    // Add the boundary mean position to the output table.
+    add_position_to_table(mean_position,
+                          time_handler,
+                          structure_mean_position_table,
+                          id);
   }
-
-  // Add forces to forces table and write if time step matches frequency
-  add_position_to_table(mean_position,
-                        time_handler,
-                        structure_mean_position_table);
   if (mpi_rank == 0 && should_output_mean_position(time_handler))
   {
     std::ofstream outfile(output_param.output_dir +
@@ -990,6 +1203,76 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_field_integrals(
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const TimeHandler     &time_handler)
+{
+  const auto &integral_param = post_proc_param.field_integral;
+  for (const auto variable : integral_param.variables)
+  {
+    const auto variable_name = SolverInfo::to_string(variable);
+    Assert(ordering.has_variable(variable),
+           ExcMessage("Cannot compute the integral of " + variable_name +
+                      " because this solver does not have that variable"));
+
+    const auto compute_and_store = [&](const auto &extractor) {
+      const auto integral = PostProcessingTools::compute_field_integral(
+        *dof_handler, mapping, quadrature, solution, extractor);
+      if (mpi_rank != 0)
+        return;
+
+      if (integral_param.verbosity == Parameters::Verbosity::verbose)
+      {
+        const std::ios::fmtflags old_flags     = std::cout.flags();
+        const auto               old_precision = std::cout.precision();
+        std::cout << std::scientific << std::showpos
+                  << std::setprecision(integral_param.precision)
+                  << "Integral of " << variable_name << ": " << integral
+                  << std::endl;
+        std::cout.precision(old_precision);
+        std::cout.flags(old_flags);
+      }
+
+      auto &table = field_integral_tables[variable];
+      table.add_value("time", time_handler.current_time);
+      const auto add_component = [&](const std::string &name,
+                                     const double       value) {
+        table.add_value(name, value);
+        table.set_precision(name, integral_param.precision);
+        table.set_scientific(name, true);
+      };
+      if constexpr (std::is_same_v<std::decay_t<decltype(integral)>, double>)
+        add_component(variable_name, integral);
+      else
+      {
+        const std::array<std::string, 3> axes = {{"x", "y", "z"}};
+        for (unsigned int d = 0; d < dim; ++d)
+          add_component(variable_name + "_" + axes[d], integral[d]);
+      }
+
+      // Accumulate every time step; the frequency only controls file output.
+      if (should_output_postprocessing(time_handler, integral_param))
+      {
+        std::ofstream outfile(output_param.output_dir +
+                              integral_param.output_prefix + "_" +
+                              variable_name + ".txt");
+        write_table(outfile, table, integral_param);
+      }
+    };
+
+    if (ordering.is_scalar(variable))
+      compute_and_store(ordering.get_scalar_extractor(variable));
+    else if (ordering.is_vector(variable))
+      compute_and_store(ordering.get_vector_extractor(variable));
+    else
+      DEAL_II_NOT_IMPLEMENTED();
   }
 }
 

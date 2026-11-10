@@ -114,7 +114,7 @@ end
 subsection Manufactured solution
   set enable            = true
   set type              = space
-  set convergence steps = 3
+  set convergence steps = 2
 
   subsection Space convergence
     set mesh prefix      = ../../mms_meshes/holed

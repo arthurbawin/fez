@@ -21,6 +21,7 @@ GenericSolver<VectorType>::GenericSolver(
                     TimerOutput::summary,
                     TimerOutput::wall_times)
   , solver_type(solver_type)
+  , preconditioner_rebuilt_at_last_solve(false)
   , output_param(output_param)
   , mesh_param(mesh_param)
   , time_param(time_param)
@@ -173,7 +174,9 @@ void GenericSolver<VectorType>::run_convergence_loop()
       {
         handler.compute_temporal_error();
 
-        // Print the errors at all timesteps if required
+        // Print the errors at all timesteps if required, from root process only
+        if (mpi_rank != 0)
+          continue;
         if (mms_param.print_unsteady_errors_to_console)
           handler.write_errors();
         if (mms_param.print_unsteady_errors_to_file)
@@ -273,7 +276,7 @@ bool GenericSolver<VectorType>::should_create_triangulation() const
    * coarsenings are performed on the same triangulation object, and no new mesh
    * is created.
    */
-  if (mesh_param.adaptation.with_tree_based_adaptation())
+  if (mms_param.enable && mesh_param.adaptation.with_tree_based_adaptation())
   {
     // If starting the convergence study at a later step, create the mesh only
     // for that step
@@ -296,8 +299,13 @@ bool GenericSolver<VectorType>::should_adapt_tree_based_mesh(
 
   if (time_handler.is_steady())
   {
+    // Do not adapt in the time integration loop for steady convergence studies,
+    // it is done after that loop instead.
     if (mms_param.enable)
       return false;
+
+    // For non-MMS computations, adapt for all but the last solve cycle
+    return !time_handler.is_finished();
   }
   else
   {

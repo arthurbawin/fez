@@ -451,6 +451,8 @@ namespace Assembly
         (assembly_flags & tracer_stabilization) != 0;
       static constexpr bool with_moving_mesh =
         (assembly_flags & moving_mesh) != 0;
+      static constexpr bool with_ale_stabilization =
+        with_moving_mesh && (with_stabilization || with_tracer_stabilization);
       static constexpr bool with_stepien = (assembly_flags & stepien) != 0;
 
       static_assert(!(with_stepien && with_moving_mesh),
@@ -597,16 +599,16 @@ namespace Assembly
 
       using namespace BoundaryConditions;
 
+      // There is no traction boundary assembler for the CHNS equations for now
+      AssertThrow(!has_boundary_condition(param.fluid_bc, Type::open_mms),
+                  ExcMessage(
+                    "The open_mms boundary condition is not implemented for "
+                    "the Cahn-Hilliard Navier-Stokes solver."));
+
       const bool supg        = param.stabilization.enable_supg;
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
       constexpr unsigned int moving_mesh_flag =
         with_moving_mesh ? moving_mesh : chns;
-
-      if constexpr (with_moving_mesh)
-        AssertThrow(
-          !(supg || tracer_supg),
-          ExcMessage(
-            "CHNS stabilization on a moving mesh is not implemented yet."));
 
       /**
        * The volume assembler reads the mobility as a single scalar

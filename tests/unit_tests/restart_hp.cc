@@ -49,14 +49,14 @@ void test_restart()
   prm.enter_subsection("Postprocessing");
   prm.enter_subsection("forces computation");
   prm.set("enable", "true");
-  prm.set("boundary id", "4");
+  prm.set("boundary ids", "4");
   prm.set("output prefix", "forces");
   prm.set("output frequency", "1");
   prm.set("computation method", "lagrange multiplier");
   prm.leave_subsection();
   prm.enter_subsection("structure position");
   prm.set("enable", "true");
-  prm.set("boundary id", "4");
+  prm.set("boundary ids", "4");
   prm.set("output prefix", "center");
   prm.set("output frequency", "1");
   prm.set("precision", "10");

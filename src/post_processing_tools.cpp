@@ -2,6 +2,7 @@
 #include <assembly/incompressible_chns_assemblers.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/grid/tria.h>
+#include <post_processing_handler.h>
 #include <post_processing_tools.h>
 #include <types.h>
 

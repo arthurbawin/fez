@@ -41,9 +41,8 @@ namespace PETScWrappers
    * GMRES.
    *
    * The Schur complement is approximated with the scaled pressure mass matrix
-   * -Mp/nu (steady problems at low Reynolds numbers), the Cahouet-Chabard
-   * preconditioner (unsteady problems, see below) or the least-squares
-   * commutator (steady problems at higher Reynolds numbers).
+   * -Mp/nu (steady problems at low Reynolds numbers) or the Cahouet-Chabard
+   * preconditioner (unsteady problems, see below).
    *
    * The Cahouet-Chabard preconditioner is derived from the generalized Stokes
    * operator, i.e., neglecting the convection N(u) in S. In the continuous
@@ -71,9 +70,8 @@ namespace PETScWrappers
    * steps. For small time steps, the Laplacian term dominates, as in projection
    * methods. The sum covers all the ratios c0 h^2 / nu with a single
    * preconditioner. As convection is neglected in the approximation of S (but
-   not
-   * in A00), it degrades at high cell Reynolds numbers with large time steps,
-   * where LSC is the alternative.
+   * not in A00), it degrades at high cell Reynolds numbers with large time
+   * steps.
    *
    * All the options passed to PETSc are prefixed with "fez_fs_", so that they
    * do not affect other PETSc preconditioners, and may be overridden from the
@@ -84,8 +82,8 @@ namespace PETScWrappers
   public:
     /**
      * Preconditioner of the velocity block A00, applied once per outer
-     * iteration. automatic selects block_jacobi for Cahouet-Chabard, amg_ilu
-     * for LSC and amg otherwise.
+     * iteration. automatic selects block_jacobi for Cahouet-Chabard and amg
+     * for the mass approximation.
      */
     using VelocityPreconditioner =
       ::Parameters::LinearSolver::VelocityBlockPreconditioner;
@@ -98,10 +96,7 @@ namespace PETScWrappers
       // (-Mp/nu)^{-1}, for steady problems at low Reynolds numbers
       mass,
       // (-Mp/nu)^{-1} + (-A10 D^{-1} A01)^{-1}, for unsteady problems
-      cahouet_chabard,
-      // Least-squares commutator, which accounts for convection, for steady
-      // problems at higher Reynolds numbers
-      lsc
+      cahouet_chabard
     };
 
     /**
@@ -139,12 +134,11 @@ namespace PETScWrappers
      *
      * The Schur complement S is approximated as chosen by
      * @p data.schur_approximation, which requires the matrix and vector of
-     * @p data listed in AdditionalData. With lsc and cahouet_chabard, the
-     * matrices L = A10 diag(A00)^{-1} A01 (LSC) and A10 D^{-1} A01 (Laplacian
-     * of Cahouet-Chabard) are assembled here, to give them a nonzero diagonal
+     * @p data listed in AdditionalData. With cahouet_chabard, the Laplacian
+     * part A10 D^{-1} A01 is assembled here, to give it a nonzero diagonal
      * on the constrained pressure dofs (hanging nodes, Dirichlet pressure
-     * conditions), for which the rows of A10 are empty. With cahouet_chabard,
-     * each of the two inverses is approximated by its own preconditioner
+     * conditions), for which the rows of A10 are empty, and each of the two
+     * inverses is approximated by its own preconditioner
      * (PCCOMPOSITE, additive), with options prefixes
      * fez_fs_fieldsplit_p_sub_0_ (mass) and fez_fs_fieldsplit_p_sub_1_
      * (Laplacian).
@@ -157,15 +151,12 @@ namespace PETScWrappers
      * - block_jacobi with Cahouet-Chabard: A00 is then dominated by the time
      *   derivative term, and AMG barely coarsens it (BoomerAMG reduces to its
      *   smoother), while one ILU application is several times cheaper,
-     * - amg_ilu with LSC, whose convergence depends on the accuracy of the
-     *   A00 solve, convection-dominated at higher Reynolds numbers, for which
-     *   Gauss-Seidel smoothing is not sufficient,
      * - amg with mass (for steady problems with a viscous-dominated A00).
      *
      * If @p data.pressure_null_space is true, the pressure is determined up to a
      * constant and the system is singular (no pinned pressure dof). The
-     * matrices A10 D^{-1} A01 (Cahouet-Chabard, LSC) are then singular too,
-     * and their BoomerAMG uses a smoother instead of a direct solve on the
+     * Laplacian A10 D^{-1} A01 of Cahouet-Chabard is then singular too,
+     * and its BoomerAMG uses a smoother instead of a direct solve on the
      * coarsest level.
      */
     PreconditionFieldSplitSchur(const MatrixBase     &matrix,

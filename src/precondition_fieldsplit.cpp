@@ -99,23 +99,6 @@ namespace PETScWrappers
     }
 
     /**
-     * Create the matrix L = A10 diag(A00)^{-1} A01 used by the LSC
-     * preconditioner. The caller is responsible for destroying it.
-     */
-    Mat create_lsc_matrix(const Mat A, const IS is_u, const IS is_p)
-    {
-      Mat A00;
-      Vec diagonal;
-      AssertPETSc(MatCreateSubMatrix(A, is_u, is_u, MAT_INITIAL_MATRIX, &A00));
-      AssertPETSc(MatCreateVecs(A00, &diagonal, nullptr));
-      AssertPETSc(MatGetDiagonal(A00, diagonal));
-      Mat L = create_scaled_product(A, is_u, is_p, diagonal);
-      AssertPETSc(VecDestroy(&diagonal));
-      AssertPETSc(MatDestroy(&A00));
-      return L;
-    }
-
-    /**
      * Create the matrix -A10 D^{-1} A01 of the Cahouet-Chabard
      * preconditioner, where D is given by the velocity entries of
      * @p time_derivative_diagonal (see AdditionalData). The caller is
@@ -153,10 +136,9 @@ namespace PETScWrappers
     // PCFieldSplitSetSchurPre() is silently ignored for other types
     AssertPETSc(PCFieldSplitSetType(pc, PC_COMPOSITE_SCHUR));
 
-    const bool use_lsc = data.schur_approximation == SchurApproximation::lsc;
     const bool use_cc =
       data.schur_approximation == SchurApproximation::cahouet_chabard;
-    AssertThrow(use_lsc || data.scaled_pressure_mass_matrix != nullptr,
+    AssertThrow(data.scaled_pressure_mass_matrix != nullptr,
                 ExcMessage("The mass and Cahouet-Chabard approximations of "
                            "the Schur complement require the scaled pressure "
                            "mass matrix."));
@@ -174,45 +156,24 @@ namespace PETScWrappers
     AssertPETSc(PCFieldSplitSetIS(pc, "u", is_u));
     AssertPETSc(PCFieldSplitSetIS(pc, "p", is_p));
 
-    if (use_lsc)
-    {
-      // LSC uses the Schur complement itself for the blocks, and looks for the
-      // matrices "LSC_L" and "LSC_Lp" composed with the matrix preconditioning
-      // the Schur complement, which is then only used to carry them.
-      Mat L = create_lsc_matrix(static_cast<const Mat &>(matrix), is_u, is_p);
-      AssertPETSc(MatDuplicate(L, MAT_COPY_VALUES, &schur_pre));
-      AssertPETSc(PetscObjectCompose(reinterpret_cast<PetscObject>(schur_pre),
-                                     "LSC_L",
-                                     reinterpret_cast<PetscObject>(L)));
-      AssertPETSc(PetscObjectCompose(reinterpret_cast<PetscObject>(schur_pre),
-                                     "LSC_Lp",
-                                     reinterpret_cast<PetscObject>(L)));
-      AssertPETSc(
-        PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
-      // schur_pre holds its own references to L
-      AssertPETSc(MatDestroy(&L));
-    }
-    else
-    {
-      // Extract the pressure rows and columns, in the same ordering as the
-      // pressure field of the PC, and use them to precondition S.
-      AssertPETSc(MatCreateSubMatrix(static_cast<const Mat &>(
-                                       *data.scaled_pressure_mass_matrix),
-                                     is_p,
-                                     is_p,
-                                     MAT_INITIAL_MATRIX,
-                                     &schur_pre));
-      AssertPETSc(
-        PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
-      // With Cahouet-Chabard, both parts are kept until they are given to
-      // the composite preconditioner of S, below
-      if (use_cc)
-        cc_laplacian = create_cc_laplacian(static_cast<const Mat &>(matrix),
-                                           is_u,
-                                           is_p,
-                                           static_cast<const Vec &>(
-                                             *data.time_derivative_diagonal));
-    }
+    // Extract the pressure rows and columns, in the same ordering as the
+    // pressure field of the PC, and use them to precondition S.
+    AssertPETSc(MatCreateSubMatrix(static_cast<const Mat &>(
+                                     *data.scaled_pressure_mass_matrix),
+                                   is_p,
+                                   is_p,
+                                   MAT_INITIAL_MATRIX,
+                                   &schur_pre));
+    AssertPETSc(
+      PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, schur_pre));
+    // With Cahouet-Chabard, both parts are kept until they are given to the
+    // composite preconditioner of S, below
+    if (use_cc)
+      cc_laplacian = create_cc_laplacian(static_cast<const Mat &>(matrix),
+                                         is_u,
+                                         is_p,
+                                         static_cast<const Vec &>(
+                                           *data.time_derivative_diagonal));
     // The PC holds its own reference to the index sets
     AssertPETSc(ISDestroy(&is_u));
     AssertPETSc(ISDestroy(&is_p));
@@ -240,25 +201,19 @@ namespace PETScWrappers
     AssertThrow(u_preconditioner != VelocityPreconditioner::amg_ilu,
                 ExcMessage("PETSc 3.22 onward is required to use BoomerAMG "
                            "with ILU smoother (amg_ilu)"));
-    const VelocityPreconditioner lsc_u_preconditioner =
-      VelocityPreconditioner::amg;
-#else
-    const VelocityPreconditioner lsc_u_preconditioner =
-      VelocityPreconditioner::amg_ilu;
 #endif
     if (u_preconditioner == VelocityPreconditioner::automatic)
-      u_preconditioner = use_cc  ? VelocityPreconditioner::block_jacobi :
-                         use_lsc ? lsc_u_preconditioner :
-                                   VelocityPreconditioner::amg;
+      u_preconditioner = use_cc ? VelocityPreconditioner::block_jacobi :
+                                  VelocityPreconditioner::amg;
 
 #if !defined(DEAL_II_PETSC_WITH_HYPRE)
-    // BoomerAMG is used for the velocity block (amg, amg_ilu), for the solve
-    // with L of LSC, and for the Laplacian part of Cahouet-Chabard
+    // BoomerAMG is used for the velocity block (amg, amg_ilu) and for the
+    // Laplacian part of Cahouet-Chabard
     AssertThrow(u_preconditioner == VelocityPreconditioner::block_jacobi &&
-                  !use_lsc && !use_cc,
+                  !use_cc,
                 ExcMessage("PETSc must be configured with hypre to use "
                            "BoomerAMG, which is required for the amg and "
-                           "amg_ilu velocity preconditioners, LSC and "
+                           "amg_ilu velocity preconditioners and "
                            "Cahouet-Chabard. Without hypre, only the mass "
                            "approximation of the Schur complement with the "
                            "block_jacobi velocity preconditioner is "
@@ -305,19 +260,7 @@ namespace PETScWrappers
     }
 
     // Schur complement S
-    if (use_lsc)
-    {
-      // Least-squares commutator, with AMG for the solve with L and the
-      // scaling by the diagonal of A00 (recommended with Dirichlet
-      // conditions)
-      set_default(p_prefix + "pc_type", "lsc");
-      set_default(p_prefix + "pc_lsc_scale_diag", "true");
-      set_default(p_prefix + "lsc_ksp_type", "preonly");
-      set_default(p_prefix + "lsc_pc_type", "hypre");
-      set_default(p_prefix + "lsc_pc_hypre_type", "boomeramg");
-      set_coarse_smoother(p_prefix + "lsc_");
-    }
-    else if (use_cc)
+    if (use_cc)
     {
       // Sum of the approximate inverses of -Mp/nu (sub_0, block Jacobi with
       // ILU(0) as in the mass variant) and -A10 D^{-1} A01 (sub_1, AMG).

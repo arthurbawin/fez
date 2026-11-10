@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-10
+
+### Fixed
+Newton line search now compares trial residuals with the residual before the search, acceptings finite steps satisfying sufficient decrease or the nonlinear tolerance, and restores the last accepted state if all trial steps fail.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

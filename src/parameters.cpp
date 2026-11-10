@@ -65,6 +65,12 @@ namespace Parameters
         "false",
         Patterns::Bool(),
         "Fix pressure nullspace by enforcing zero-mean pressure");
+      prm.declare_entry(
+        "pressure reference point",
+        "0,0,0",
+        Patterns::List(Patterns::Double()),
+        "Reference point used to select the pressure DoF pinned when "
+        "\"fix pressure constant\" is enabled");
     }
     prm.leave_subsection();
   }
@@ -76,6 +82,8 @@ namespace Parameters
       READ_VERBOSITY_PARAM(prm, fluid_verbosity)
       fix_pressure_constant      = prm.get_bool("fix pressure constant");
       enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
+      pressure_reference_point   = Utilities::string_to_double(
+        Utilities::split_string_list(prm.get("pressure reference point"), ","));
     }
     prm.leave_subsection();
   }
@@ -476,7 +484,9 @@ namespace Parameters
       "Frequency (in time steps) for the exportation of postprocessing files");
   }
 
-  void declare_postprocessing_file(ParameterHandler &prm)
+  void declare_postprocessing_file(
+    ParameterHandler  &prm,
+    const std::string &default_prefix = "postprocessed_data")
   {
     declare_postprocessing_base(prm);
     prm.declare_entry("write results",
@@ -484,7 +494,7 @@ namespace Parameters
                       Patterns::Bool(),
                       "Write result of this postprocessing to file");
     prm.declare_entry("output prefix",
-                      "postprocessed_data",
+                      default_prefix,
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
     prm.declare_entry("precision",
@@ -581,6 +591,21 @@ namespace Parameters
       prm.enter_subsection("chns phase average velocity");
       {
         declare_postprocessing_file(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns conservation");
+      {
+        declare_postprocessing_file(prm, "chns_conservation");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns energy");
+      {
+        declare_postprocessing_file(prm, "chns_energy");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase energy");
+      {
+        declare_postprocessing_file(prm, "chns_phase_energy");
       }
       prm.leave_subsection();
       prm.enter_subsection("vorticity");
@@ -734,6 +759,21 @@ namespace Parameters
       prm.enter_subsection("chns phase average velocity");
       {
         read_postprocessing_file(prm, chns_avg_velocity);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns conservation");
+      {
+        read_postprocessing_file(prm, chns_conservation);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns energy");
+      {
+        read_postprocessing_file(prm, chns_energy);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase energy");
+      {
+        read_postprocessing_file(prm, chns_phase_energy);
       }
       prm.leave_subsection();
       prm.enter_subsection("vorticity");
@@ -1567,14 +1607,42 @@ namespace Parameters
   {
     prm.enter_subsection("Cahn Hilliard");
     {
+      prm.declare_entry(
+        "CHNS model",
+        "abels",
+        Patterns::Selection("abels|quasi_incompressible"),
+        "CHNS model. abels: solenoidal velocity with diffusive inertia. "
+        "quasi_incompressible: mass-averaged velocity and the energy-stable "
+        "Galerkin scheme documented in "
+        "examples/incompressible_chns/quasi_incompressible/equations.md.");
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant"),
-                        "Model for the mobility tensor");
+                        Patterns::Selection("constant|degenerate_absolute"),
+                        "Model for the mobility. constant: M = mobility. "
+                        "degenerate_absolute: M = prefactor * epsilon^2 * "
+                        "|1 - phi^2| (quasi_incompressible only).");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry("degenerate absolute mobility prefactor",
+                        "0.1",
+                        Patterns::Double(0.),
+                        "Non-negative prefactor m0 in "
+                        "M(phi) = m0 * epsilon^2 * |1 - phi^2| for "
+                        "mobility model = degenerate_absolute.");
+      prm.declare_entry(
+        "write quasi incompressible diagnostics",
+        "false",
+        Patterns::Bool(),
+        "Write quasi_incompressible_diagnostics.csv, including the initial "
+        "energy, mass and dissipation, using the assembly quadrature.");
+      prm.declare_entry(
+        "quasi incompressible periodic box",
+        "false",
+        Patterns::Bool(),
+        "Identify opposite boundaries 2*d and 2*d+1 in all directions for "
+        "the fixed, colorized rectangular quasi-incompressible CHNS box.");
       prm.declare_entry("surface tension",
                         "1.",
                         Patterns::Double(),
@@ -1607,10 +1675,45 @@ namespace Parameters
   {
     prm.enter_subsection("Cahn Hilliard");
     {
+      const std::string parsed_chns_model = prm.get("CHNS model");
+      if (parsed_chns_model == "abels")
+        chns_model = CHNSModel::Abels;
+      else if (parsed_chns_model == "quasi_incompressible")
+        chns_model = CHNSModel::QuasiIncompressible;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown CHNS model '" + parsed_chns_model +
+                               "'."));
+
       const std::string parsed_mobility_model = prm.get("mobility model");
-      if (parsed_mobility_model == "linear")
+      if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
-      mobility            = prm.get_double("mobility");
+      else if (parsed_mobility_model == "degenerate_absolute")
+        mobility_model = MobilityModel::degenerate_absolute;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown mobility model '" +
+                               parsed_mobility_model + "'."));
+      mobility = prm.get_double("mobility");
+      degenerate_absolute_mobility_prefactor =
+        prm.get_double("degenerate absolute mobility prefactor");
+      write_quasi_incompressible_diagnostics =
+        prm.get_bool("write quasi incompressible diagnostics");
+      quasi_incompressible_periodic_box =
+        prm.get_bool("quasi incompressible periodic box");
+
+      const bool quasi_incompressible =
+        chns_model == CHNSModel::QuasiIncompressible;
+      AssertThrow(mobility_model != MobilityModel::degenerate_absolute ||
+                    quasi_incompressible,
+                  ExcMessage("mobility model = degenerate_absolute requires "
+                             "CHNS model = quasi_incompressible."));
+      AssertThrow(!(write_quasi_incompressible_diagnostics ||
+                    quasi_incompressible_periodic_box) ||
+                    quasi_incompressible,
+                  ExcMessage("The quasi-incompressible diagnostics and "
+                             "periodic box require CHNS model = "
+                             "quasi_incompressible."));
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
       with_tracer_limiter = prm.get_bool("enable tracer limiter");

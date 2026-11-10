@@ -63,6 +63,9 @@ namespace NavierStokesScratch
     , n_components(ordering.n_components)
     , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_pressure_gradients(
+        param.stabilization.enable_supg ||
+        CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
     , fe_values(std::make_unique<FEValues<dim>>(
         moving_mapping,
         fe,
@@ -134,6 +137,9 @@ namespace NavierStokesScratch
     , n_components(ordering.n_components)
     , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_pressure_gradients(
+        param.stabilization.enable_supg ||
+        CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
         fe_collection,
@@ -226,6 +232,7 @@ namespace NavierStokesScratch
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
     , enable_tracer_stabilization(other.enable_tracer_stabilization)
+    , enable_pressure_gradients(other.enable_pressure_gradients)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)

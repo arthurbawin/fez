@@ -83,6 +83,8 @@ namespace Parameters
 
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
+    // Point closest to the pressure DoF pinned by fix_pressure_constant.
+    std::vector<double> pressure_reference_point;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -392,6 +394,24 @@ namespace Parameters
     struct CHNSPhasesAvgVelocity : public PostProcessingFile
     {
     } chns_avg_velocity;
+
+    // Quasi-incompressible CHNS: mass and phase integrals, and their changes
+    // from the first monitored state.
+    struct CHNSConservation : public PostProcessingFile
+    {
+    } chns_conservation;
+
+    // Quasi-incompressible CHNS: energy components, physical dissipations and
+    // the residual of the discrete energy identity.
+    struct CHNSEnergy : public PostProcessingFile
+    {
+    } chns_energy;
+
+    // Quasi-incompressible CHNS: energy components integrated separately over
+    // phi >= 0 and phi < 0.
+    struct CHNSPhaseEnergy : public PostProcessingFile
+    {
+    } chns_phase_energy;
 
     /**
      * A base struct for postprocessing tools which produce a field, which is
@@ -809,12 +829,35 @@ namespace Parameters
   class CahnHilliard
   {
   public:
+    /**
+     * Cahn-Hilliard Navier-Stokes model.
+     *
+     * - Abels: solenoidal velocity, Abels et al. (2012) diffusive inertia.
+     * - QuasiIncompressible: mass-averaged velocity with the energy-stable
+     *   Galerkin scheme of Brunk & ten Eikelder. See
+     *   examples/incompressible_chns/quasi_incompressible/equations.md.
+     */
+    enum class CHNSModel
+    {
+      Abels,
+      QuasiIncompressible
+    } chns_model = CHNSModel::Abels;
+
     enum class MobilityModel
     {
-      constant
+      // M(phi) = mobility
+      constant,
+      // M(phi) = prefactor * epsilon^2 * |1 - phi^2|
+      degenerate_absolute
     } mobility_model;
 
     double mobility;
+    // Prefactor m0 of the degenerate_absolute mobility.
+    double degenerate_absolute_mobility_prefactor;
+    // Write quasi_incompressible_diagnostics.csv at every time step.
+    bool write_quasi_incompressible_diagnostics;
+    // Identify opposite faces 2d and 2d+1 of a colorized rectangle.
+    bool   quasi_incompressible_periodic_box;
     double surface_tension;
     double epsilon_interface;
     bool   with_tracer_limiter;

@@ -1,6 +1,15 @@
 
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
 #include <post_processing_handler.h>
 #include <postprocessors_and_evaluators.h>
+
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
@@ -428,6 +437,297 @@ void PostProcessingHandler<dim>::create_field_postprocessors(
     if (postprocessor_param_ptr->enable)
       field_postprocessors[type] = create_field_postprocessor(
         type, param, mapping, cell_quadrature, with_moving_mesh);
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::process_chns_integrals(
+  const PostProcessingTools::CHNSIntegralData &data,
+  const TimeHandler                           &time_handler)
+{
+  using I       = PostProcessingTools::CHNSIntegralData;
+  const auto &v = data.sums;
+  if (!chns_reference_initialized)
+  {
+    chns_reference_initialized = true;
+    chns_reference_time        = time_handler.current_time;
+    chns_initial_mass          = v[I::AffineMass];
+    chns_initial_phase         = v[I::PhaseIntegral];
+    chns_initial_volume        = v[I::Volume];
+    chns_initial_energy        = data.total_energy();
+  }
+  const bool process_domain =
+    chns_last_iteration != time_handler.current_time_iteration;
+  const bool process_phases = needs_chns_phase_energy(time_handler);
+  if (!process_domain && !process_phases)
+    return;
+  if (process_domain)
+    chns_last_iteration = time_handler.current_time_iteration;
+  if (process_phases)
+    chns_phase_energy_last_iteration = time_handler.current_time_iteration;
+
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+
+  // Only rank 0 writes; propagate its errors so that every rank throws.
+  std::string error;
+  if (mpi_rank == 0)
+  {
+    try
+    {
+      const auto add = [](TableHandler      &table,
+                          const std::string &key,
+                          const double       value,
+                          const unsigned int precision) {
+        table.add_value(key, value);
+        table.set_precision(key, precision);
+        table.set_scientific(key, true);
+      };
+      const auto add_time = [&](TableHandler &table, const auto &param) {
+        add(table, "time", time_handler.current_time, param.precision);
+        table.add_value("iteration", time_handler.current_time_iteration);
+      };
+      // Print "<label> at t=<time>: <details>" if verbose, and write the table.
+      const auto output = [&](const TableHandler &table,
+                              const auto         &param,
+                              const std::string  &label,
+                              const auto         &write_details) {
+        if (param.verbosity == Parameters::Verbosity::verbose)
+        {
+          std::ostringstream line;
+          line << std::scientific << std::setprecision(param.precision) << label
+               << " at t=" << time_handler.current_time << ": ";
+          write_details(line);
+          std::cout << line.str() << '\n';
+        }
+        if (should_output_postprocessing(time_handler, param))
+        {
+          std::filesystem::create_directories(output_param.output_dir);
+          const std::string filename =
+            output_param.output_dir + param.output_prefix + ".txt";
+          std::ofstream stream(filename);
+          AssertThrow(stream.good(), ExcMessage("Cannot write " + filename));
+          write_table(stream, table, param);
+        }
+      };
+
+      const auto &conservation = post_proc_param.chns_conservation;
+      if (conservation.enable && process_domain)
+      {
+        auto &table = chns_conservation_table;
+        add_time(table, conservation);
+        add(table,
+            "reference_time",
+            chns_reference_time,
+            conservation.precision);
+        const auto entry = [&](const std::string &key, const double value) {
+          add(table, key, value, conservation.precision);
+        };
+        entry("domain_volume", v[I::Volume]);
+        entry("mass_affine", v[I::AffineMass]);
+        entry("phase_integral", v[I::PhaseIntegral]);
+        entry("mass_positive", v[I::PositiveMass]);
+        entry("mass_change_from_reference",
+              v[I::AffineMass] - chns_initial_mass);
+        entry("mass_relative_change",
+              chns_initial_mass != 0. ?
+                (v[I::AffineMass] - chns_initial_mass) / chns_initial_mass :
+                nan);
+        entry("phase_change_from_reference",
+              v[I::PhaseIntegral] - chns_initial_phase);
+        entry("phase_volume_relative_change",
+              chns_initial_volume > 0. ?
+                (v[I::PhaseIntegral] - chns_initial_phase) /
+                  chns_initial_volume :
+                nan);
+        entry("mass_step_change", v[I::AffineMass] - v[I::OldAffineMass]);
+        entry("phase_step_change",
+              v[I::PhaseIntegral] - v[I::OldPhaseIntegral]);
+        output(table, conservation, "CHNS conservation", [&](auto &line) {
+          line << "mass=" << v[I::AffineMass]
+               << ", phase=" << v[I::PhaseIntegral];
+        });
+      }
+
+      const auto &energy = post_proc_param.chns_energy;
+      if (energy.enable && process_domain)
+      {
+        auto &table = chns_energy_table;
+        add_time(table, energy);
+        add(table, "reference_time", chns_reference_time, energy.precision);
+        const auto entry = [&](const std::string &key, const double value) {
+          add(table, key, value, energy.precision);
+        };
+        entry("kinetic_energy", v[I::KineticEnergy]);
+        entry("bulk_energy", v[I::BulkEnergy]);
+        entry("gradient_energy", v[I::GradientEnergy]);
+        entry("interfacial_energy", v[I::InterfacialEnergy]);
+        entry("gravitational_energy", v[I::GravitationalEnergy]);
+        entry("total_energy", data.total_energy());
+        entry("energy_change_from_reference",
+              data.total_energy() - chns_initial_energy);
+        entry("viscous_dissipation", v[I::ViscousDissipation]);
+        entry("diffusive_dissipation", v[I::DiffusiveDissipation]);
+
+        const auto &coefficients = time_handler.get_bdf_coefficients();
+        const bool  snapshot     = time_handler.current_time_iteration == 0 ||
+                              time_handler.current_time_iteration ==
+                                time_handler.time_iteration_at_last_restart;
+        const bool bdf2 =
+          !snapshot && coefficients.size() == 3 && coefficients[2] != 0.;
+        const double dt = snapshot ? 0. : time_handler.get_current_timestep();
+        const bool   constant_bdf2 =
+          bdf2 && std::abs(dt * coefficients[0] - 1.5) < 1.e-12 &&
+          std::abs(dt * coefficients[1] + 2.) < 1.e-12 &&
+          std::abs(dt * coefficients[2] - 0.5) < 1.e-12;
+        const double dissipation =
+          v[I::ViscousDissipation] + v[I::DiffusiveDissipation];
+        // E^{n+1} - E^n + dt (viscous + diffusive dissipation). With BDF1,
+        // adding the numerical dissipation closes the energy identity.
+        const double defect =
+          data.total_energy() - v[I::OldEnergy] + dt * dissipation;
+        entry("effective_bdf_order", snapshot ? 0. : (bdf2 ? 2. : 1.));
+        entry("physical_energy_increment_plus_dissipation", defect);
+        entry("energy_balance_residual",
+              bdf2 ? nan : defect + v[I::NumericalEnergyLoss]);
+        entry("temporal_energy_balance_residual",
+              v[I::KineticTemporalPower] + v[I::BulkTemporalPower] +
+                v[I::GradientTemporalPower] + v[I::GravitationalTemporalPower] +
+                (snapshot ? 0. : dissipation));
+        entry("bdf2_modified_kinetic_energy",
+              bdf2 ? v[I::ModifiedKineticEnergy] : nan);
+        entry("bdf2_modified_gradient_energy",
+              bdf2 ? v[I::ModifiedGradientEnergy] : nan);
+        entry("bdf2_constant_step", constant_bdf2 ? 1. : 0.);
+        entry("bdf2_kinetic_remainder",
+              constant_bdf2 ? v[I::BDF2KineticRemainder] : nan);
+        entry("bdf2_gradient_remainder",
+              constant_bdf2 ? v[I::BDF2GradientRemainder] : nan);
+        entry("bdf2_kinetic_identity_residual",
+              constant_bdf2 ? v[I::BDF2KineticIdentityResidual] : nan);
+        entry("bdf2_gradient_identity_residual",
+              constant_bdf2 ? v[I::BDF2GradientIdentityResidual] : nan);
+        output(table, energy, "CHNS energy", [&](auto &line) {
+          line << "total energy=" << data.total_energy();
+        });
+      }
+
+      if (process_phases)
+      {
+        using E                  = PostProcessingTools::CHNSEnergyComponents;
+        const auto &phase_energy = post_proc_param.chns_phase_energy;
+        auto       &table        = chns_phase_energy_table;
+        add_time(table, phase_energy);
+        for (unsigned int phase = 0; phase < data.phase_energy.size(); ++phase)
+        {
+          const auto       &e      = data.phase_energy[phase];
+          const std::string suffix = "_phase_" + std::to_string(phase);
+          const auto entry = [&](const std::string &key, const double value) {
+            add(table, key + suffix, value, phase_energy.precision);
+          };
+          entry("kinetic_energy", e.values[E::Kinetic]);
+          entry("bulk_energy", e.values[E::Bulk]);
+          entry("gradient_energy", e.values[E::Gradient]);
+          entry("interfacial_energy", e.interfacial_energy());
+          entry("gravitational_energy", e.values[E::Gravitational]);
+          entry("total_energy", e.total_energy());
+        }
+        output(table, phase_energy, "CHNS phase energy", [&](auto &line) {
+          line << "total energy=" << data.total_energy();
+          for (unsigned int phase = 0; phase < data.phase_energy.size();
+               ++phase)
+            line << ", phase " << phase << '='
+                 << data.phase_energy[phase].total_energy();
+        });
+      }
+    }
+    catch (const std::exception &exception)
+    {
+      error = exception.what();
+    }
+  }
+  error = Utilities::MPI::broadcast(mpi_communicator, error, 0);
+  AssertThrow(error.empty(), ExcMessage(error));
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::save_checkpoint_state(
+  const std::string &checkpoint_prefix) const
+{
+  std::string error;
+  if (mpi_rank == 0)
+    try
+    {
+      const std::string filename = checkpoint_prefix + ".postprocessing";
+      std::ofstream     stream(filename, std::ios::binary);
+      AssertThrow(stream.good(), ExcMessage("Cannot write " + filename));
+      stream << "FEZ_POSTPROCESSING_V1\n";
+      // Binary archives preserve the NaN entries of the BDF diagnostics.
+      boost::archive::binary_oarchive archive(stream);
+      archive << chns_reference_initialized << chns_reference_time
+              << chns_initial_mass << chns_initial_phase << chns_initial_volume
+              << chns_initial_energy << chns_last_iteration
+              << chns_conservation_table << chns_energy_table
+              << chns_phase_energy_last_iteration << chns_phase_energy_table;
+    }
+    catch (const std::exception &exception)
+    {
+      error = exception.what();
+    }
+  error = Utilities::MPI::broadcast(mpi_communicator, error, 0);
+  AssertThrow(error.empty(), ExcMessage(error));
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::load_checkpoint_state(
+  const std::string &checkpoint_prefix)
+{
+  std::string error;
+  if (mpi_rank == 0)
+    try
+    {
+      const std::string filename = checkpoint_prefix + ".postprocessing";
+      std::ifstream     stream(filename, std::ios::binary);
+      // Checkpoints written without a sidecar start a new reference here.
+      if (stream)
+      {
+        std::string version;
+        std::getline(stream, version);
+        AssertThrow(version == "FEZ_POSTPROCESSING_V1",
+                    ExcMessage(
+                      "Unsupported postprocessing checkpoint format in " +
+                      filename));
+        boost::archive::binary_iarchive archive(stream);
+        archive >> chns_reference_initialized >> chns_reference_time >>
+          chns_initial_mass >> chns_initial_phase >> chns_initial_volume >>
+          chns_initial_energy >> chns_last_iteration >>
+          chns_conservation_table >> chns_energy_table >>
+          chns_phase_energy_last_iteration >> chns_phase_energy_table;
+      }
+    }
+    catch (const std::exception &exception)
+    {
+      error = exception.what();
+    }
+  error = Utilities::MPI::broadcast(mpi_communicator, error, 0);
+  AssertThrow(error.empty(), ExcMessage(error));
+  chns_reference_initialized =
+    Utilities::MPI::broadcast(mpi_communicator, chns_reference_initialized, 0);
+  chns_last_iteration =
+    Utilities::MPI::broadcast(mpi_communicator, chns_last_iteration, 0);
+  chns_phase_energy_last_iteration =
+    Utilities::MPI::broadcast(mpi_communicator,
+                              chns_phase_energy_last_iteration,
+                              0);
+  std::vector<double> reference = {chns_reference_time,
+                                   chns_initial_mass,
+                                   chns_initial_phase,
+                                   chns_initial_volume,
+                                   chns_initial_energy};
+  reference = Utilities::MPI::broadcast(mpi_communicator, reference, 0);
+  chns_reference_time = reference[0];
+  chns_initial_mass   = reference[1];
+  chns_initial_phase  = reference[2];
+  chns_initial_volume = reference[3];
+  chns_initial_energy = reference[4];
 }
 
 template class PostProcessingHandler<2>;

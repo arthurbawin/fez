@@ -297,6 +297,40 @@ public:
   void clear();
 
   /**
+   * Add the quasi-incompressible CHNS domain integrals to the "chns
+   * conservation", "chns energy" and "chns phase energy" tables, and write
+   * them if requested. The first processed state is the reference for the
+   * changes in mass, phase integral and energy.
+   */
+  void process_chns_integrals(const PostProcessingTools::CHNSIntegralData &data,
+                              const TimeHandler &time_handler);
+
+  /**
+   * Return true if the reference state of the CHNS tables is set.
+   */
+  bool has_chns_reference() const { return chns_reference_initialized; }
+
+  /**
+   * Return true if the phase-energy table needs a sample at this iteration.
+   * This allows enabling this output at a checkpoint restart without adding
+   * the restart snapshot twice to the other CHNS tables.
+   */
+  bool needs_chns_phase_energy(const TimeHandler &time_handler) const
+  {
+    return post_proc_param.chns_phase_energy.enable &&
+           chns_phase_energy_last_iteration !=
+             time_handler.current_time_iteration;
+  }
+
+  /**
+   * Save/load the CHNS tables and their reference state in a sidecar file
+   * <checkpoint_prefix>.postprocessing, which leaves the solution checkpoint
+   * format unchanged. A missing sidecar on restart starts a new reference.
+   */
+  void save_checkpoint_state(const std::string &checkpoint_prefix) const;
+  void load_checkpoint_state(const std::string &checkpoint_prefix);
+
+  /**
    * Return true if the volume fields should be output at this time step.
    */
   bool should_output_volume_fields(const TimeHandler &time_handler) const
@@ -547,6 +581,20 @@ private:
 
   // For multiphase flows: average velocity in each phase
   TableHandler average_velocity_phases;
+
+  // Quasi-incompressible CHNS tables and the reference (first monitored)
+  // state for the changes in mass, phase integral and energy.
+  TableHandler chns_conservation_table;
+  TableHandler chns_energy_table;
+  TableHandler chns_phase_energy_table;
+  bool         chns_reference_initialized       = false;
+  double       chns_reference_time              = 0.;
+  double       chns_initial_mass                = 0.;
+  double       chns_initial_phase               = 0.;
+  double       chns_initial_volume              = 0.;
+  double       chns_initial_energy              = 0.;
+  unsigned int chns_last_iteration              = numbers::invalid_unsigned_int;
+  unsigned int chns_phase_energy_last_iteration = numbers::invalid_unsigned_int;
 };
 
 /* ---------------- Template functions ----------------- */

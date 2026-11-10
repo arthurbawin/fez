@@ -17,6 +17,8 @@
 #include <solver_info.h>
 #include <utilities.h>
 
+#include <filesystem>
+
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -688,6 +690,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       }
     }
 
+    AssertThrow(param.bc_data.pressure_reference_point.size() >= dim,
+                ExcMessage("\"pressure reference point\" needs at least " +
+                           std::to_string(dim) + " coordinates."));
+    Point<dim> pressure_reference_point;
+    for (unsigned int d = 0; d < dim; ++d)
+      pressure_reference_point[d] = param.bc_data.pressure_reference_point[d];
+
     BoundaryConditions::constrain_pressure_point(
       *dof_handler,
       locally_relevant_dofs,
@@ -697,7 +706,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       set_to_zero,
       constraints,
       constrained_pressure_dof,
-      constrained_pressure_support_point);
+      constrained_pressure_support_point,
+      pressure_reference_point);
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)
@@ -1349,6 +1359,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
   const std::string tmp_checkpoint_prefix =
     param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
 
+  // The output directory may not exist yet if nothing else was written.
+  if (mpi_rank == 0)
+    std::filesystem::create_directories(param.output.output_dir);
+  MPI_Barrier(mpi_communicator);
+
   {
     // Write a checkpoint file for each rank
     // All ranks will read the same local range for their PETSc vector otherwise
@@ -1362,6 +1377,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
     archive << time_handler;
   }
 
+  postproc_handler->save_checkpoint_state(tmp_checkpoint_prefix);
   triangulation->save(tmp_checkpoint_prefix);
 
   replace_temporary_files(param.output.output_dir,
@@ -1398,6 +1414,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
+  postproc_handler->load_checkpoint_state(checkpoint_prefix);
 }
 
 // Explicit instantiation

@@ -1,6 +1,7 @@
 
 #include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_chns_assemblers.h>
+#include <cahn_hilliard.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -20,10 +21,136 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <string>
+
+namespace
+{
+  /**
+   * Check that the parameters are within the scope of the energy-stable
+   * quasi-incompressible scheme: fixed mesh, BDF1/BDF2, Taylor-Hood
+   * velocity-pressure pair with equal phase/potential degrees, no
+   * stabilization, closed (no-slip or slip) or periodic boundaries.
+   */
+  template <int dim>
+  void check_quasi_incompressible_parameters(const ParameterReader<dim> &param,
+                                             const bool with_moving_mesh)
+  {
+    using Scheme     = Parameters::TimeIntegration::Scheme;
+    const auto &time = param.time_integration;
+    const auto &fe   = param.finite_elements;
+    const auto &ch   = param.cahn_hilliard;
+
+    AssertThrow(!with_moving_mesh,
+                ExcMessage(
+                  "Quasi-incompressible CHNS is implemented on a fixed mesh."));
+    AssertThrow(time.scheme == Scheme::BDF1 || time.scheme == Scheme::BDF2,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires scheme = BDF1 or BDF2."));
+    AssertThrow(time.scheme != Scheme::BDF2 ||
+                  time.bdfstart == Parameters::TimeIntegration::BDFStart::BDF1,
+                ExcMessage(
+                  "Quasi-incompressible BDF2 requires bdf start method = BDF1 "
+                  "to construct a consistent second history state."));
+    AssertThrow(time.scheme != Scheme::BDF2 ||
+                  (time.bdf_starting_step_ratio > 0. &&
+                   time.bdf_starting_step_ratio < 1.),
+                ExcMessage("Quasi-incompressible BDF2 requires "
+                           "0 < bdf start step ratio < 1."));
+    AssertThrow(!param.stabilization.enable_supg &&
+                  !param.stabilization.enable_tracer_supg,
+                ExcMessage("Disable SUPG/PSPG stabilization for the "
+                           "quasi-incompressible CHNS Galerkin scheme."));
+    AssertThrow(fe.tracer_degree >= 1 &&
+                  fe.tracer_degree == fe.potential_degree &&
+                  fe.pressure_degree >= 1 &&
+                  fe.velocity_degree == fe.pressure_degree + 1,
+                ExcMessage("Quasi-incompressible CHNS requires equal "
+                           "phase/potential degrees >= 1 and a Taylor-Hood "
+                           "velocity/pressure pair (e.g. 2/1)."));
+    AssertThrow(ch.epsilon_interface > 0. && ch.surface_tension > 0.,
+                ExcMessage("Interface thickness and surface tension must be "
+                           "strictly positive."));
+    AssertThrow(param.physical_properties.fluids.size() == 2,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires exactly two fluids."));
+    for (const auto &fluid : param.physical_properties.fluids)
+      AssertThrow(fluid.density > 0. && fluid.kinematic_viscosity >= 0.,
+                  ExcMessage("Quasi-incompressible CHNS requires positive "
+                             "densities and non-negative viscosities."));
+    AssertThrow(!param.with_tree_based_adaptation() &&
+                  !param.with_metric_based_adaptation(),
+                ExcMessage("Quasi-incompressible CHNS requires a fixed mesh; "
+                           "disable mesh adaptation."));
+    AssertThrow(param.bc_data.fix_pressure_constant !=
+                  param.bc_data.enforce_zero_mean_pressure,
+                ExcMessage("Quasi-incompressible CHNS requires exactly one "
+                           "pressure gauge: fix pressure constant or enforce "
+                           "zero mean pressure."));
+
+    // No open-boundary momentum or phase flux terms are assembled.
+    // Manufactured traces remain available; their energy includes the work of
+    // the boundary data.
+    for (const auto &[id, bc] : param.fluid_bc)
+      AssertThrow(bc.type == BoundaryConditions::Type::no_slip ||
+                    bc.type == BoundaryConditions::Type::slip ||
+                    (param.mms_param.enable &&
+                     bc.type == BoundaryConditions::Type::velocity_mms),
+                  ExcMessage("Quasi-incompressible CHNS supports no_slip/slip "
+                             "fluid boundaries and manufactured velocity "
+                             "traces; unsupported boundary id " +
+                             std::to_string(id)));
+    for (const auto &[id, bc] : param.cahn_hilliard_bc)
+      AssertThrow(bc.type == BoundaryConditions::Type::no_flux ||
+                    (param.mms_param.enable &&
+                     bc.type == BoundaryConditions::Type::dirichlet_mms),
+                  ExcMessage("Quasi-incompressible CHNS supports natural "
+                             "no_flux Cahn-Hilliard boundaries and "
+                             "manufactured traces; unsupported boundary id " +
+                             std::to_string(id)));
+
+    if (ch.quasi_incompressible_periodic_box)
+    {
+      AssertThrow(param.physical_properties.body_force.norm_square() == 0.,
+                  ExcMessage("The quasi-incompressible periodic box requires "
+                             "zero body force: a nonzero constant gravity "
+                             "potential is not periodic."));
+      AssertThrow(fe.use_quads && param.mesh.deal_ii_preset_mesh == "rectangle",
+                  ExcMessage("The periodic box requires use quads = true and "
+                             "dealii preset mesh = rectangle."));
+      AssertThrow(param.bc_data.fix_pressure_constant &&
+                    !param.bc_data.enforce_zero_mean_pressure,
+                  ExcMessage("For a periodic box, pin the pressure at an "
+                             "interior support point and disable the zero "
+                             "mean pressure constraint."));
+      AssertThrow(param.fluid_bc.empty() && param.cahn_hilliard_bc.empty(),
+                  ExcMessage("For a periodic box, set number = 0 in both "
+                             "fluid and CahnHilliard boundary conditions; "
+                             "periodicity applies to every field."));
+    }
+  }
+} // namespace
+
 template <int dim, bool with_moving_mesh>
 CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  const bool quasi_incompressible =
+    CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard);
+  if (quasi_incompressible)
+    check_quasi_incompressible_parameters(param, with_moving_mesh);
+  AssertThrow(quasi_incompressible ||
+                !(param.postprocessing.chns_conservation.enable ||
+                  param.postprocessing.chns_energy.enable ||
+                  param.postprocessing.chns_phase_energy.enable),
+              ExcMessage("The chns conservation, chns energy and chns phase "
+                         "energy postprocessings require CHNS model = "
+                         "quasi_incompressible."));
+
   if constexpr (with_moving_mesh)
   {
     if (param.finite_elements.use_quads)
@@ -129,6 +256,12 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
+  if (CahnHilliard::is_quasi_incompressible_model(cahn_hilliard_param))
+  {
+    quasi_incompressible_vector_value(p, values);
+    return;
+  }
+
   const double phi = mms.exact_tracer->value(p);
   // Filter the tracer as in the scratch data, if applicable
   const double filtered_phi = tracer_limiter(phi);
@@ -204,6 +337,96 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
 }
 
 template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::
+  quasi_incompressible_vector_value(const Point<dim> &p,
+                                    Vector<double>   &values) const
+{
+  /**
+   * Source terms for the continuous strong form of the quasi-incompressible
+   * model, independently of the time discretization:
+   *
+   *   rho~ dv/dt + 1/2 (drho~/dt) v + rho (v.grad) v + 1/2 div(rho v) v
+   *     - div(eta~ (grad v + grad v^T - 2/d div v I)) + grad p + phi grad mu
+   *     - rho g = f_v,
+   *   div v - alpha div J = f_p,
+   *   dphi/dt + div(phi v) - div J = f_phi,
+   *   mu - sigma~/eps (phi^3 - phi) + sigma~ eps lap(phi) = f_mu,
+   *
+   * with J = M(phi) (grad mu + alpha grad p). The source terms are stored with
+   * the sign convention of the residual in EnergyStable::residual().
+   */
+  const double rho0  = physical_properties.fluids[0].density;
+  const double rho1  = physical_properties.fluids[1].density;
+  const double eta0  = rho0 * physical_properties.fluids[0].kinematic_viscosity;
+  const double eta1  = rho1 * physical_properties.fluids[1].kinematic_viscosity;
+  const double alpha = (rho1 - rho0) / (rho0 + rho1);
+  const double sigma_tilde =
+    CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard_param);
+  const double epsilon = cahn_hilliard_param.epsilon_interface;
+
+  const double phi     = mms.exact_tracer->value(p);
+  const double dphidt  = mms.exact_tracer->time_derivative(p);
+  const double lap_phi = mms.exact_tracer->laplacian(p);
+  const double mu      = mms.exact_potential->value(p);
+  const double lap_mu  = mms.exact_potential->laplacian(p);
+  const double lap_p   = mms.exact_pressure->laplacian(p);
+  const double div_u   = mms.exact_velocity->divergence(p);
+
+  // Affine density, and positive extensions of density and viscosity.
+  const double clipped = CahnHilliard::tracer_limiter(phi);
+  const double clip_derivative =
+    CahnHilliard::tracer_limiter_derivative(phi, true);
+  const double rho_affine = CahnHilliard::linear_mixing(phi, rho0, rho1);
+  const double rho        = CahnHilliard::linear_mixing(clipped, rho0, rho1);
+  const double drho       = 0.5 * (rho0 - rho1);
+  const double eta        = CahnHilliard::linear_mixing(clipped, eta0, eta1);
+  const double detadphi   = 0.5 * (eta0 - eta1) * clip_derivative;
+  const auto   mobility =
+    CahnHilliard::evaluate_mobility(cahn_hilliard_param, phi);
+
+  Tensor<1, dim> u, dudt_eulerian;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
+    u[d]             = mms.exact_velocity->value(p, d);
+  }
+
+  // Use convention (grad_u)_ij := dvj/dxi
+  const Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  const Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
+  const Tensor<1, dim> grad_div_u = mms.exact_velocity->grad_div(p);
+  const Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
+  const Tensor<1, dim> grad_mu    = mms.exact_potential->gradient(p);
+  const Tensor<1, dim> grad_phi   = mms.exact_tracer->gradient(p);
+  const Tensor<1, dim> uDotGradu  = u * grad_u;
+
+  // Diffusive flux divergence div(J)
+  const Tensor<1, dim> grad_w   = grad_mu + alpha * grad_p;
+  const double         div_flux = mobility.value * (lap_mu + alpha * lap_p) +
+                          mobility.first_derivative * (grad_phi * grad_w);
+
+  // div(eta~ (grad u + grad u^T) + lambda eta~ div(u) I), lambda = -2/d
+  const double         lambda = -2. / dim;
+  const Tensor<1, dim> div_stress =
+    eta * (lap_u + (1. + lambda) * grad_div_u) +
+    2. * detadphi * (grad_phi * symmetrize(grad_u)) +
+    lambda * detadphi * div_u * grad_phi;
+  const double div_mass_flux = drho * (u * grad_phi) + rho_affine * div_u;
+
+  const Tensor<1, dim> momentum =
+    rho * dudt_eulerian + rho_affine * uDotGradu +
+    0.5 * u * (drho * clip_derivative * dphidt + div_mass_flux) - div_stress +
+    grad_p + phi * grad_mu - rho_affine * physical_properties.body_force;
+
+  for (unsigned int d = 0; d < dim; ++d)
+    values[u_lower + d] = -momentum[d];
+  values[p_lower]   = div_u - alpha * div_flux;
+  values[phi_lower] = -(dphidt + u * grad_phi + phi * div_u - div_flux);
+  values[mu_lower]  = -(mu + sigma_tilde * epsilon * lap_phi -
+                       sigma_tilde / epsilon * phi * (phi * phi - 1.));
+}
+
+template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::update_simulation_parameters(
   const unsigned int fixed_point_iteration)
 {
@@ -276,6 +499,40 @@ template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim,
                 with_moving_mesh>::create_solver_specific_zero_constraints()
 {
+  const auto &ch = this->param.cahn_hilliard;
+  if (CahnHilliard::is_quasi_incompressible_model(ch) &&
+      !ch.quasi_incompressible_periodic_box)
+  {
+    // An omitted velocity boundary would otherwise become an open natural
+    // boundary, for which no momentum or phase flux terms are assembled.
+    unsigned int closed = 1;
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned())
+        for (const auto face : cell->face_indices())
+          if (cell->face(face)->at_boundary() &&
+              this->param.fluid_bc.count(cell->face(face)->boundary_id()) == 0)
+            closed = 0;
+    AssertThrow(Utilities::MPI::min(closed, this->mpi_communicator) == 1,
+                ExcMessage("Every non-periodic quasi-incompressible CHNS mesh "
+                           "boundary needs an explicit fluid boundary "
+                           "condition; open boundaries are not implemented."));
+  }
+  if (ch.quasi_incompressible_periodic_box)
+  {
+    const auto pressure_mask =
+      fe->component_mask(FEValuesExtractors::Scalar(this->ordering->p_lower));
+    const auto boundary_dofs =
+      DoFTools::extract_boundary_dofs(*this->dof_handler, pressure_mask);
+    const unsigned int boundary_pin =
+      boundary_dofs.is_element(this->constrained_pressure_dof) ? 1 : 0;
+    AssertThrow(Utilities::MPI::max(boundary_pin, this->mpi_communicator) == 0,
+                ExcMessage("The periodic pressure reference must select an "
+                           "interior pressure support point."));
+    for (unsigned int d = 0; d < dim; ++d)
+      DoFTools::make_periodicity_constraints(
+        *this->dof_handler, 2 * d + 1, 2 * d, d, this->zero_constraints);
+  }
+
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
     /**
@@ -305,6 +562,11 @@ template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim,
                 with_moving_mesh>::create_solver_specific_nonzero_constraints()
 {
+  if (this->param.cahn_hilliard.quasi_incompressible_periodic_box)
+    for (unsigned int d = 0; d < dim; ++d)
+      DoFTools::make_periodicity_constraints(
+        *this->dof_handler, 2 * d + 1, 2 * d, d, this->nonzero_constraints);
+
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
     /**
@@ -372,6 +634,19 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
     for (unsigned int j = 0; j < n_components; ++j)
     {
       coupling_table[i][j] = DoFTools::none;
+
+      if (CahnHilliard::is_quasi_incompressible_model(
+            this->param.cahn_hilliard))
+      {
+        // The momentum, continuity and phase rows couple to all four
+        // unknowns (skew convection, phi grad(mu), and the diffusive flux
+        // M(phi)(grad mu + alpha grad p)). The potential row only couples to
+        // phi and mu.
+        if (!this->ordering->is_potential(i) || this->ordering->is_tracer(j) ||
+            this->ordering->is_potential(j))
+          coupling_table[i][j] = DoFTools::always;
+        continue;
+      }
 
       // u couples to all variables
       if (this->ordering->is_velocity(i))
@@ -570,8 +845,150 @@ void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
 }
 
 template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::write_quasi_incompressible_diagnostics(
+  const PostProcessingTools::CHNSIntegralData &data) const
+{
+  using I           = PostProcessingTools::CHNSIntegralData;
+  const auto  &pp   = this->param.physical_properties;
+  const double rho0 = pp.fluids[0].density, rho1 = pp.fluids[1].density;
+  const bool   initial = this->time_handler.current_time_iteration == 0;
+  const double dt = initial ? 0. : this->time_handler.get_current_timestep();
+  const std::vector<double> coefficients =
+    initial ? std::vector<double>{0., 0.} :
+              this->time_handler.get_bdf_coefficients();
+  const bool bdf2          = coefficients.size() == 3 && coefficients[2] != 0.;
+  const bool constant_bdf2 = bdf2 &&
+                             std::abs(dt * coefficients[0] - 1.5) < 1.e-12 &&
+                             std::abs(dt * coefficients[1] + 2.) < 1.e-12 &&
+                             std::abs(dt * coefficients[2] - 0.5) < 1.e-12;
+  const auto  &sums    = data.sums;
+  const double phi_min = data.phi_min, phi_max = data.phi_max;
+  const double density_at_min_phi =
+    CahnHilliard::linear_mixing(phi_min, rho0, rho1);
+  const double density_at_max_phi =
+    CahnHilliard::linear_mixing(phi_max, rho0, rho1);
+  if (this->mpi_rank != 0)
+    return;
+  std::filesystem::create_directories(this->param.output.output_dir);
+  const auto filename =
+    this->param.output.output_dir + "quasi_incompressible_diagnostics.csv";
+  const bool    header = initial || !std::ifstream(filename).good();
+  std::ofstream out(filename, initial ? std::ios::trunc : std::ios::app);
+  AssertThrow(out.good(), ExcMessage("Cannot write " + filename));
+  if (header)
+    out
+      << "time,iteration,dt,phase_integral,mass_affine,mass_positive,"
+         "kinetic_energy,interfacial_energy,gravitational_energy,total_energy,"
+         "viscous_dissipation,diffusive_dissipation,numerical_energy_loss,"
+         "energy_inequality_residual,energy_balance_residual,phase_change,"
+         "mass_change,bubble_area,center_y,rise_velocity,phi_min_q,phi_max_q,"
+         "numerical_kinetic_energy_loss,numerical_interfacial_energy_loss,"
+         "density_affine_min_q,density_affine_max_q,negative_density_volume_q,"
+         "phase_overshoot_volume_q,density_extension_l1,velocity_l2,"
+         "velocity_divergence_l2,diffusive_flux_l2,domain_volume,"
+         "effective_bdf_order,bdf_c0,bdf_c1,bdf_c2,"
+         "physical_energy_increment_plus_dissipation,"
+         "phase_time_derivative_integral,mass_time_derivative_integral,"
+         "kinetic_temporal_power,bulk_temporal_power,gradient_temporal_power,"
+         "gravitational_temporal_power,temporal_energy_balance_residual,"
+         "bdf2_constant_step,bdf2_modified_kinetic_energy,"
+         "bdf2_modified_gradient_energy,bdf2_kinetic_remainder,"
+         "bdf2_gradient_remainder,bdf2_kinetic_identity_residual,"
+         "bdf2_gradient_identity_residual\n";
+  const double energy = data.total_energy();
+  // E^{n+1} - E^n + dt (viscous + diffusive dissipation). For BDF1, this is
+  // minus the numerical dissipation, see equations.md.
+  const double defect =
+    energy - sums[I::OldEnergy] +
+    dt * (sums[I::ViscousDissipation] + sums[I::DiffusiveDissipation]);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double temporal_balance =
+    sums[I::KineticTemporalPower] + sums[I::BulkTemporalPower] +
+    sums[I::GradientTemporalPower] + sums[I::GravitationalTemporalPower] +
+    (initial ? 0. :
+               sums[I::ViscousDissipation] + sums[I::DiffusiveDissipation]);
+  const auto bubble_average = [&](const I::Integral moment) {
+    return sums[I::BubbleVolume] > 0. ? sums[moment] / sums[I::BubbleVolume] :
+                                        nan;
+  };
+  out << std::setprecision(16) << this->time_handler.current_time << ','
+      << this->time_handler.current_time_iteration << ',' << dt;
+  for (unsigned int k = I::PhaseIntegral; k <= I::GravitationalEnergy; ++k)
+    out << ',' << sums[k];
+  out << ',' << energy << ',' << sums[I::ViscousDissipation] << ','
+      << sums[I::DiffusiveDissipation] << ','
+      << (bdf2 ? nan : sums[I::NumericalEnergyLoss]) << ','
+      << (bdf2 ? nan : defect) << ','
+      << (bdf2 ? nan : defect + sums[I::NumericalEnergyLoss]) << ','
+      << sums[I::PhaseIntegral] - sums[I::OldPhaseIntegral] << ','
+      << sums[I::AffineMass] - sums[I::OldAffineMass] << ','
+      << sums[I::BubbleVolume] << ',' << bubble_average(I::BubbleHeightMoment)
+      << ',' << bubble_average(I::BubbleVelocityMoment) << ',' << phi_min << ','
+      << phi_max << ',' << (bdf2 ? nan : sums[I::NumericalKineticLoss]) << ','
+      << (bdf2 ? nan : sums[I::NumericalInterfacialLoss]) << ','
+      << std::min(density_at_min_phi, density_at_max_phi) << ','
+      << std::max(density_at_min_phi, density_at_max_phi) << ','
+      << sums[I::NegativeDensityVolume] << ',' << sums[I::PhaseOvershootVolume]
+      << ',' << sums[I::DensityExtensionL1] << ','
+      << std::sqrt(sums[I::VelocityNormSquared]) << ','
+      << std::sqrt(sums[I::DivergenceNormSquared]) << ','
+      << std::sqrt(sums[I::DiffusiveFluxNormSquared]) << ',' << sums[I::Volume]
+      << ',' << (initial ? 0 : (bdf2 ? 2 : 1)) << ',' << coefficients[0] << ','
+      << coefficients[1] << ','
+      << (coefficients.size() == 3 ? coefficients[2] : 0.) << ',' << defect
+      << ',' << sums[I::PhaseRate] << ',' << sums[I::MassRate] << ','
+      << sums[I::KineticTemporalPower] << ',' << sums[I::BulkTemporalPower]
+      << ',' << sums[I::GradientTemporalPower] << ','
+      << sums[I::GravitationalTemporalPower] << ',' << temporal_balance << ','
+      << (constant_bdf2 ? 1 : 0) << ','
+      << (bdf2 ? sums[I::ModifiedKineticEnergy] : nan) << ','
+      << (bdf2 ? sums[I::ModifiedGradientEnergy] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2KineticRemainder] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2GradientRemainder] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2KineticIdentityResidual] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2GradientIdentityResidual] : nan) << '\n';
+}
+
+template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::solver_specific_post_processing()
 {
+  const auto &ch                = this->param.cahn_hilliard;
+  const auto &pp_param          = this->param.postprocessing;
+  const bool  domain_monitoring = pp_param.chns_conservation.enable ||
+                                 pp_param.chns_energy.enable ||
+                                 pp_param.chns_phase_energy.enable;
+  const bool detailed = ch.write_quasi_incompressible_diagnostics;
+
+  // After a restart, the restored state was already monitored before the
+  // checkpoint: skip it unless a phase-energy sample is still missing.
+  const bool restart_snapshot =
+    this->param.checkpoint_restart.restart &&
+    this->time_handler.current_time_iteration != 0 &&
+    this->time_handler.current_time_iteration ==
+      this->time_handler.time_iteration_at_last_restart;
+
+  if (CahnHilliard::is_quasi_incompressible_model(ch) &&
+      (detailed || domain_monitoring) &&
+      !(restart_snapshot && this->postproc_handler->has_chns_reference() &&
+        !this->postproc_handler->needs_chns_phase_energy(this->time_handler)))
+  {
+    TimerOutput::Scope timer(this->computing_timer,
+                             "Compute CHNS domain integrals");
+    const auto         data = PostProcessingTools::compute_chns_integrals(
+      ch,
+      this->param.physical_properties,
+      *this->ordering,
+      *this->dof_handler,
+      *this->moving_mapping,
+      *this->quadrature,
+      *this->present_solution,
+      *this->previous_solutions,
+      this->time_handler);
+    this->postproc_handler->process_chns_integrals(data, this->time_handler);
+    if (detailed && !restart_snapshot)
+      write_quasi_incompressible_diagnostics(data);
+  }
+
   TimerOutput::Scope t(this->computing_timer, "Compute multiphase indicators");
 
   this->postproc_handler->compute_multiphase_indicators(*this->ordering,

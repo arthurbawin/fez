@@ -14,9 +14,9 @@ Max absolute error analytical vs fd matrix is 5.25592e-07
 Newton iter.  0:          nonlinear residual = 1.71129405e+02
 	Line search with alpha = 1.000 : res = 5.39799609e-02
 Newton iter.  1:          nonlinear residual = 5.39799609e-02	(M)
-	Line search with alpha = 1.000 : res = 8.55312851e-08
-Newton iter.  2:          nonlinear residual = 8.55312851e-08	(M)
-	Line search with alpha = 1.000 : res = 2.03499947e-12
+	Line search with alpha = 1.000 : res = 8.55312875e-08
+Newton iter.  2:          nonlinear residual = 8.55312875e-08	(M)
+	Line search with alpha = 1.000 : res = 2.03075085e-12
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 2.00e-02.
@@ -24,17 +24,17 @@ Max absolute error analytical vs fd matrix is 5.98e-06
 Newton iter.  0:          nonlinear residual = 5.19187422e+00
 	Line search with alpha = 1.000 : res = 5.05495648e-03
 Newton iter.  1:          nonlinear residual = 5.05495648e-03	(M)
-	Line search with alpha = 1.000 : res = 6.70083212e-10
-Newton iter.  2:          nonlinear residual = 6.70083212e-10	(M)
-	Line search with alpha = 1.000 : res = 2.20568503e-13
+	Line search with alpha = 1.000 : res = 6.70077401e-10
+Newton iter.  2:          nonlinear residual = 6.70077401e-10	(M)
+	Line search with alpha = 1.000 : res = 2.23974080e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 3 - Advancing to t = 3.00e-02.
-Max absolute error analytical vs fd matrix is 6.04e-06
+Max absolute error analytical vs fd matrix is 4.86e-06
 Newton iter.  0:          nonlinear residual = 4.27699901e+00
 	Line search with alpha = 1.000 : res = 4.07285943e-03
 Newton iter.  1:          nonlinear residual = 4.07285943e-03	(M)
-	Line search with alpha = 1.000 : res = 4.58840555e-10
-Newton iter.  2:          nonlinear residual = 4.58840555e-10	(M)
-	Line search with alpha = 1.000 : res = 2.25799171e-13
+	Line search with alpha = 1.000 : res = 4.58845321e-10
+Newton iter.  2:          nonlinear residual = 4.58845321e-10	(M)
+	Line search with alpha = 1.000 : res = 2.18415124e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)

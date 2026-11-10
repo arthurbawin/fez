@@ -126,7 +126,6 @@ namespace LinearSolvers
         AssertThrow(false,
                     ExcMessage("AMG preconditioner should be initialized in "
                                "the relevant dedicated solver."));
-      case Parameters::LinearSolver::PreconditionerType::fieldsplit_schur_lsc:
       case Parameters::LinearSolver::PreconditionerType::fieldsplit_schur_cc:
         AssertThrow(false,
                     ExcMessage("The block Schur preconditioner should be"

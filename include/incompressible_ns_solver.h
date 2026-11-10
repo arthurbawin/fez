@@ -346,9 +346,8 @@ protected:
   std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
 
   /**
-   * Data for the block Schur preconditioners (fieldsplit_schur_cc and
-   * fieldsplit_schur_lsc), which only depend on the mesh, the constraints and
-   * the viscosity.
+   * Data for the block Schur preconditioner (fieldsplit_schur_cc), which only
+   * depend on the mesh, the constraints and the viscosity.
    */
   struct BlockSchurPreconditionerData
   {

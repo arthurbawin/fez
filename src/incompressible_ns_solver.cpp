@@ -256,21 +256,17 @@ void NSSolver<dim>::create_sparsity_pattern()
   }
 #endif
 
-  // Data of the block Schur preconditioners: the dofs of each field, and the
-  // sparsity pattern of the pressure mass matrix of the Cahouet-Chabard
-  // preconditioner
+  // Data of the Cahouet-Chabard block Schur preconditioner: the dofs of each
+  // field, and the sparsity pattern of the pressure mass matrix
   block_schur_data.is_assembled = false;
-  if (linear_solver_param.use_fieldsplit())
+  if (linear_solver_param.use_cc())
   {
     // Locally owned dofs of each field
     block_schur_data.velocity_dofs =
       DoFTools::extract_dofs(*this->dof_handler, this->velocity_mask);
     block_schur_data.pressure_dofs =
       DoFTools::extract_dofs(*this->dof_handler, this->pressure_mask);
-  }
 
-  if (linear_solver_param.use_cc())
-  {
     // Only the pressure couples to itself
     Table<2, DoFTools::Coupling> pressure_coupling(n_components, n_components);
     for (unsigned int c = 0; c < n_components; ++c)
@@ -497,38 +493,32 @@ void NSSolver<dim>::create_preconditioner()
     // c0 diag(Mu), with the current leading BDF coefficient (Cahouet-Chabard)
     LA::ParVectorType time_derivative_diagonal;
 
+    // Cahouet-Chabard approximation of S = −A10 * A00^-1 * A01, given by
+    // Ŝ^-1 = (−Mp/ν)^-1 + (−A10 * (c0 diag(Mu))^-1 * A01)^-1,
+    // with Mp and Mu the pressure and velocity mass matrices, respectively.
+    // These matrices are only assembled after a change of their sparsity
+    // pattern.
     using SchurApproximation = Precondition::SchurApproximation;
-    if (linear_solver_param.use_cc())
+    const bool steady        = this->time_handler.is_steady();
+    if (!block_schur_data.is_assembled)
     {
-      // Cahouet-Chabard approximation of S = −A10 * A00^-1 * A01, given by
-      // Ŝ^-1 = (−Mp/ν)^-1 + (−A10 * (c0 diag(Mu))^-1 * A01)^-1,
-      // with Mp and Mu the pressure and velocity mass matrices, respectively.
-      // These matrices are only assembled after a change of their sparsity
-      // pattern.
-      const bool steady = this->time_handler.is_steady();
-      if (!block_schur_data.is_assembled)
-      {
-        assemble_pressure_mass_matrix();
-        if (!steady)
-          assemble_velocity_mass_diagonal();
-        block_schur_data.is_assembled = true;
-      }
-
-      data.scaled_pressure_mass_matrix = &block_schur_data.pressure_mass_matrix;
-      if (steady)
-        // Without time derivative, only the mass term remains
-        data.schur_approximation = SchurApproximation::mass;
-      else
-      {
-        time_derivative_diagonal = block_schur_data.velocity_mass_diagonal;
-        time_derivative_diagonal *= this->time_handler.bdf_coefficients[0];
-        data.schur_approximation      = SchurApproximation::cahouet_chabard;
-        data.time_derivative_diagonal = &time_derivative_diagonal;
-      }
+      assemble_pressure_mass_matrix();
+      if (!steady)
+        assemble_velocity_mass_diagonal();
+      block_schur_data.is_assembled = true;
     }
+
+    data.scaled_pressure_mass_matrix = &block_schur_data.pressure_mass_matrix;
+    if (steady)
+      // Without time derivative, only the mass term remains
+      data.schur_approximation = SchurApproximation::mass;
     else
-      // Least-squares commutator
-      data.schur_approximation = SchurApproximation::lsc;
+    {
+      time_derivative_diagonal = block_schur_data.velocity_mass_diagonal;
+      time_derivative_diagonal *= this->time_handler.bdf_coefficients[0];
+      data.schur_approximation      = SchurApproximation::cahouet_chabard;
+      data.time_derivative_diagonal = &time_derivative_diagonal;
+    }
 
     preconditioner = std::make_unique<Precondition>(this->system_matrix,
                                                     velocity_dofs,

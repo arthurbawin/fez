@@ -42,15 +42,15 @@ void ParameterReader<dim>::check_parameters() const
         "the system matrix is singular. With direct_mumps, set 'fix pressure "
         "constant = true' instead."));
 
-  // The field split Schur preconditioners assume a zero pressure block, which
+  // The field split Schur preconditioner assumes a zero pressure block, which
   // the PSPG stabilization makes nonzero: stabilized formulations should use
   // a monolithic preconditioner (amg)
   if (stabilization.enable_supg &&
       linear_solver.count(SolverInfo::SolverType::main_physics) > 0)
     AssertThrow(
       !linear_solver.at(SolverInfo::SolverType::main_physics).use_fieldsplit(),
-      ExcMessage("\n The fieldsplit_schur preconditioners require 'enable "
-                 "supg = false': they assume a zero pressure-pressure block, "
+      ExcMessage("\n The fieldsplit_schur_cc preconditioner requires 'enable "
+                 "supg = false': it assumes a zero pressure-pressure block, "
                  "which the PSPG stabilization makes nonzero. Use the amg "
                  "preconditioner with stabilization."));
 

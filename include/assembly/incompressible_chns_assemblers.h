@@ -2,7 +2,9 @@
 #define INCOMPRESSIBLE_CHNS_ASSEMBLERS_H
 
 #include <assembly/assembler.h>
+#include <assembly/quasi_incompressible_chns_assembler.h>
 #include <boundary_conditions.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/table.h>
 #include <parameter_reader.h>
@@ -146,6 +148,22 @@ namespace Assembly
                     "To enable moving_mesh computations in the CHNS "
                     "assemblers, the provided ScratchData should be "
                     "initialized with a pseudo-solid update flag.");
+
+      // The energy-stable quasi-incompressible scheme replaces the whole
+      // volume assembly. Its solver checks the fixed mesh and the absence of
+      // stabilization, but keep the assembler self-consistent.
+      if (CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
+      {
+        AssertThrow(!with_moving_mesh && !param.stabilization.enable_supg &&
+                      !param.stabilization.enable_tracer_supg,
+                    ExcMessage("The energy-stable quasi-incompressible CHNS "
+                               "assembler requires a fixed mesh without "
+                               "stabilization."));
+        assemblers.emplace_back(
+          std::make_unique<
+            EnergyStable::VolumeAssembler<dim, ScratchData, CopyData>>(param));
+        return;
+      }
 
       using namespace BoundaryConditions;
 

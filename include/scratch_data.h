@@ -270,14 +270,15 @@ namespace NavierStokesScratch
                                                    present_velocity_divergence);
       fe_values[pressure].get_function_values(current_solution,
                                               present_pressure_values);
+      if (enable_pressure_gradients)
+        fe_values[pressure].get_function_gradients(current_solution,
+                                                   present_pressure_gradients);
       if (enable_stabilization)
       {
         fe_values[velocity].get_function_laplacians(
           current_solution, present_velocity_laplacians);
         fe_values[velocity].get_function_hessians(current_solution,
                                                   present_velocity_hessians);
-        fe_values[pressure].get_function_gradients(current_solution,
-                                                   present_pressure_gradients);
 
         // Compute grad(div) from the hessians
         for (unsigned int q = 0; q < n_q_points; ++q)
@@ -320,11 +321,11 @@ namespace NavierStokesScratch
           sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
           div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
           phi_p[q][k]          = fe_values[pressure].value(k, q);
+          if (enable_pressure_gradients)
+            grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
 
           if (enable_stabilization)
           {
-            grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
-
             auto &lap      = laplacian_phi_u[q][k];
             auto &grad_div = grad_div_phi_u[q][k];
 
@@ -1287,6 +1288,9 @@ namespace NavierStokesScratch
 
     bool enable_stabilization;
     bool enable_tracer_stabilization;
+    // Pressure gradients (values and shape functions) are needed by PSPG and
+    // by the quasi-incompressible diffusive flux M (grad mu + alpha grad p).
+    bool enable_pressure_gradients;
 
   public:
     unsigned int active_fe_index;

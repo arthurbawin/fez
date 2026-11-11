@@ -14,9 +14,12 @@
 #include <deal.II/numerics/data_out_faces.h>
 #include <parameter_reader.h>
 #include <parameters.h>
+#include <time_handler.h>
 #include <types.h>
 
+#include <array>
 #include <type_traits>
+#include <vector>
 
 // Forward declaration
 template <int dim>
@@ -28,6 +31,137 @@ class PostProcessingHandler;
 namespace PostProcessingTools
 {
   using namespace dealii;
+
+  /**
+   * Physical energy components of the quasi-incompressible CHNS model,
+   * integrated over the domain or over one phase:
+   *
+   *   kinetic       = rho~(phi) |v|^2 / 2,
+   *   bulk          = sigma~/eps (phi^2 - 1)^2 / 4,
+   *   gradient      = sigma~ eps |grad phi|^2 / 2,
+   *   gravitational = -rho(phi) g.x.
+   */
+  struct CHNSEnergyComponents
+  {
+    enum Component : unsigned int
+    {
+      Kinetic,
+      Bulk,
+      Gradient,
+      Gravitational,
+      ComponentCount
+    };
+    std::array<double, ComponentCount> values{};
+
+    double interfacial_energy() const
+    {
+      return values[Bulk] + values[Gradient];
+    }
+
+    double total_energy() const
+    {
+      return values[Kinetic] + interfacial_energy() + values[Gravitational];
+    }
+  };
+
+  /**
+   * Domain integrals of the quasi-incompressible CHNS model at the current
+   * time step, with the previous-step quantities needed by the discrete
+   * energy identity. The kinetic energy uses the positive density extension
+   * rho~, while the conserved mass and the gravitational energy use the
+   * affine density rho. See
+   * examples/incompressible_chns/quasi_incompressible/README.md.
+   */
+  struct CHNSIntegralData
+  {
+    enum Integral : unsigned int
+    {
+      // int phi
+      PhaseIntegral,
+      // int rho(phi)
+      AffineMass,
+      // int rho~(phi)
+      PositiveMass,
+      KineticEnergy,
+      // bulk + gradient energy
+      InterfacialEnergy,
+      GravitationalEnergy,
+      // int 2 eta~ |dev(D v)|^2
+      ViscousDissipation,
+      // int M |grad mu + alpha grad p|^2
+      DiffusiveDissipation,
+      // BDF1 numerical dissipation, divided by dt:
+      // int rho~^n |v - v^n|^2 / 2 + sigma~ eps |grad(phi - phi^n)|^2 / 2
+      NumericalEnergyLoss,
+      // Total energy, phase integral and mass at the previous time step
+      OldEnergy,
+      OldPhaseIntegral,
+      OldAffineMass,
+      // Region phi < 0: volume, and first moments of y and v_y
+      BubbleVolume,
+      BubbleHeightMoment,
+      BubbleVelocityMoment,
+      Volume,
+      // Kinetic and interfacial parts of NumericalEnergyLoss
+      NumericalKineticLoss,
+      NumericalInterfacialLoss,
+      // Volumes where rho(phi) < 0 and |phi| > 1, and int |rho~ - rho|
+      NegativeDensityVolume,
+      PhaseOvershootVolume,
+      DensityExtensionL1,
+      // Squared L2 norms of v, div v and M (grad mu + alpha grad p)
+      VelocityNormSquared,
+      DivergenceNormSquared,
+      DiffusiveFluxNormSquared,
+      // BDF time derivatives of int phi and int rho(phi)
+      PhaseRate,
+      MassRate,
+      // Discrete powers of each energy component, i.e. their BDF time
+      // derivatives tested as in the energy estimate
+      KineticTemporalPower,
+      BulkTemporalPower,
+      GradientTemporalPower,
+      GravitationalTemporalPower,
+      // BDF2 only: two-level modified energies, remainders and identities
+      ModifiedKineticEnergy,
+      ModifiedGradientEnergy,
+      BDF2KineticRemainder,
+      BDF2GradientRemainder,
+      BDF2KineticIdentityResidual,
+      BDF2GradientIdentityResidual,
+      BulkEnergy,
+      GradientEnergy,
+      IntegralCount
+    };
+    std::array<double, IntegralCount> sums{};
+    // phase_energy[0]: phi >= 0, phase_energy[1]: phi < 0.
+    std::array<CHNSEnergyComponents, 2> phase_energy{};
+    // Extrema of phi over the quadrature points
+    double phi_min = 0., phi_max = 0.;
+
+    double total_energy() const
+    {
+      return sums[KineticEnergy] + sums[InterfacialEnergy] +
+             sums[GravitationalEnergy];
+    }
+  };
+
+  /**
+   * Compute the domain integrals of the quasi-incompressible CHNS model with
+   * the given quadrature. At the first time step and right after a restart,
+   * the previous-step quantities are those of the current solution.
+   */
+  template <int dim, typename VectorType>
+  CHNSIntegralData compute_chns_integrals(
+    const Parameters::CahnHilliard<dim>       &ch,
+    const Parameters::PhysicalProperties<dim> &physical_properties,
+    const ComponentOrdering                   &ordering,
+    const DoFHandler<dim>                     &dof_handler,
+    const Mapping<dim>                        &mapping,
+    const Quadrature<dim>                     &quadrature,
+    const VectorType                          &solution,
+    const std::vector<VectorType>             &previous_solutions,
+    const TimeHandler                         &time_handler);
 
   /**
    * Small specialization of deal.II's DataOutFaces to output a single boundary.

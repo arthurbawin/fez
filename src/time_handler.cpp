@@ -173,6 +173,8 @@ void TimeHandler::set_bdf_coefficients(
 {
   const Parameters::TimeIntegration::Scheme used_scheme =
     force_scheme ? forced_scheme : scheme;
+  // Clear inactive coefficients when BDF2 uses the BDF1 startup scheme.
+  std::fill(bdf_coefficients.begin(), bdf_coefficients.end(), 0.);
   switch (used_scheme)
   {
     case STAT:
@@ -679,11 +681,18 @@ void TimeHandler::update_parameters_after_restart(
 
   // If time step adaptation is enabled, keep the predicted time step
   // stored in the checkpointed data. Otherwise, use the new dt.
+  const bool bdf1_startup =
+    scheme == BDF2 &&
+    new_parameters.bdfstart == Parameters::TimeIntegration::BDFStart::BDF1 &&
+    is_starting_step();
   if (!with_adaptive_timestep)
   {
-    current_dt    = new_parameters.dt;
-    time_steps[0] = new_parameters.dt;
+    current_dt = new_parameters.dt;
+    if (bdf1_startup)
+      current_dt *= 1. - new_parameters.bdf_starting_step_ratio;
+    // time_steps describes accepted past steps. advance() must still see
+    // the last accepted dt when forming variable-step BDF2 after restart.
   }
 
-  set_bdf_coefficients();
+  set_bdf_coefficients(bdf1_startup);
 }

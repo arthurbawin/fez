@@ -5,13 +5,25 @@
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <navier_stokes_solver.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 
 using namespace dealii;
 
 /**
- * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
- * TODO: Add equations.
+ * Cahn-Hilliard Navier-Stokes solver.
+ *
+ * Two models are available, selected with "CHNS model" in the "Cahn Hilliard"
+ * subsection:
+ *
+ * - abels: solenoidal velocity and Abels et al. diffusive inertia, assembled
+ *   by Assembly::IncompressibleCHNS::VolumeAssembler, with optional SUPG/PSPG
+ *   stabilization and ALE support.
+ *
+ * - quasi_incompressible: mass-averaged velocity and the energy-stable
+ *   Galerkin scheme of Assembly::IncompressibleCHNS::EnergyStable, on a fixed
+ *   mesh. The model and its discrete energy identity are documented in
+ *   examples/incompressible_chns/quasi_incompressible/README.md.
  */
 template <int dim, bool with_moving_mesh = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
@@ -114,6 +126,13 @@ public:
    * Post-process the additional data specific to this solver.
    */
   virtual void solver_specific_post_processing() override;
+
+  /**
+   * Append one row to quasi_incompressible_diagnostics.csv, with the domain
+   * integrals of the quasi-incompressible model at the current time step.
+   */
+  void write_quasi_incompressible_diagnostics(
+    const PostProcessingTools::CHNSIntegralData &data) const;
 
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
@@ -342,6 +361,13 @@ protected:
 
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
+
+    /**
+     * Source terms of the quasi-incompressible model, called by
+     * vector_value().
+     */
+    void quasi_incompressible_vector_value(const Point<dim> &p,
+                                           Vector<double>   &values) const;
 
     /**
      * Gradient of source term, using finite differences

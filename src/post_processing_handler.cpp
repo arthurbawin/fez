@@ -1,6 +1,7 @@
 
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
+#include <cahn_hilliard.h>
 #include <post_processing_handler.h>
 #include <postprocessors_and_evaluators.h>
 
@@ -64,6 +65,12 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       postprocessors.emplace_back(
         std::make_unique<PostProcessingTools::QCriterionPostProcessor<dim>>(
           ordering));
+    // The quasi-incompressible CHNS model also outputs its mobility, which
+    // depends on the phase for the degenerate law.
+    if (CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::MobilityPostProcessor<dim>>(
+          ordering, param.cahn_hilliard));
   }
 }
 

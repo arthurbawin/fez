@@ -216,6 +216,10 @@ fluids with positive densities. These requirements are checked at startup.
 
 ## Outputs
 
+In addition to the solution fields, the VTU/PVD output contains the
+`mobility` field $M(\phi)$, evaluated at the visualization points from the
+phase as in the assembly.
+
 The following postprocessings, in `subsection Postprocessing`, write a table
 `<output prefix>.txt` in the output directory. They are computed with the
 assembly quadrature and do not require VTU output.

@@ -151,6 +151,33 @@ namespace PostProcessingTools
   };
 
   /**
+   * A DataPostProcessor to output the Cahn-Hilliard mobility M(phi), evaluated
+   * at the visualization points from the phase tracer exactly as in the
+   * assembly (see CahnHilliard::evaluate_mobility).
+   */
+  template <int dim>
+  class MobilityPostProcessor : public DataPostprocessorScalar<dim>
+  {
+  public:
+    /**
+     * Constructor.
+     */
+    MobilityPostProcessor(const ComponentOrdering             &ordering,
+                          const Parameters::CahnHilliard<dim> &cahn_hilliard);
+
+    /**
+     * Evaluate M(phi).
+     */
+    virtual void evaluate_vector_field(
+      const DataPostprocessorInputs::Vector<dim> &input_data,
+      std::vector<Vector<double>> &computed_quantities) const override;
+
+  private:
+    const unsigned int                  phi_lower;
+    const Parameters::CahnHilliard<dim> cahn_hilliard;
+  };
+
+  /**
    * A DataPostProcessor to compute the Q criterion.
    */
   template <int dim>

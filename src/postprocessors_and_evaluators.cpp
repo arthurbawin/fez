@@ -1,4 +1,5 @@
 
+#include <cahn_hilliard.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
@@ -50,6 +51,40 @@ namespace PostProcessingTools
 
   template class VorticityPostProcessor<2>;
   template class VorticityPostProcessor<3>;
+
+  template <int dim>
+  MobilityPostProcessor<dim>::MobilityPostProcessor(
+    const ComponentOrdering             &ordering,
+    const Parameters::CahnHilliard<dim> &cahn_hilliard)
+    : DataPostprocessorScalar<dim>("mobility", update_values)
+    , phi_lower(ordering.phi_lower)
+    , cahn_hilliard(cahn_hilliard)
+  {
+    Assert(phi_lower != numbers::invalid_unsigned_int,
+           ExcMessage("Cannot postprocess the mobility because this solver "
+                      "does not solve for the phase tracer!"));
+  }
+
+  template <int dim>
+  void MobilityPostProcessor<dim>::evaluate_vector_field(
+    const DataPostprocessorInputs::Vector<dim> &input_data,
+    std::vector<Vector<double>>                &computed_quantities) const
+  {
+    AssertDimension(input_data.solution_values.size(),
+                    computed_quantities.size());
+
+    for (unsigned int p = 0; p < input_data.solution_values.size(); ++p)
+    {
+      AssertDimension(computed_quantities[p].size(), 1);
+      computed_quantities[p][0] =
+        CahnHilliard::evaluate_mobility(
+          cahn_hilliard, input_data.solution_values[p][phi_lower])
+          .value;
+    }
+  }
+
+  template class MobilityPostProcessor<2>;
+  template class MobilityPostProcessor<3>;
 
   template <int dim>
   VorticityEvaluator<dim>::VorticityEvaluator(const ComponentOrdering &ordering,

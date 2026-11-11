@@ -151,8 +151,12 @@ $\phi^{n+1} = \phi^n$.
 ### Space discretization
 
 The velocity and pressure use a Taylor-Hood pair (e.g. $P_2/P_1$ or
-$Q_2/Q_1$) and the phase and potential use the same continuous elements of
-degree $\ge 1$. The fully coupled nonlinear system is solved with Newton's
+$Q_2/Q_1$) and the phase and potential use continuous elements of degree
+$\ge 1$. The energy identity below requires the same space for the phase and
+the potential; with different degrees (e.g. a $P_2$ phase and a $P_1$
+potential) the scheme still runs, but the identity no longer holds. The fully
+coupled nonlinear system is solved with Newton's
+
 method and the exact Jacobian; the fields at $t^n$ are fixed during the
 solve. No stabilization is used.
 

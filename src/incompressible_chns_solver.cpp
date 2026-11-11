@@ -65,11 +65,10 @@ namespace
                   !param.stabilization.enable_tracer_supg,
                 ExcMessage("Disable SUPG/PSPG stabilization for the "
                            "quasi-incompressible CHNS Galerkin scheme."));
-    AssertThrow(fe.tracer_degree >= 1 &&
-                  fe.tracer_degree == fe.potential_degree &&
+    AssertThrow(fe.tracer_degree >= 1 && fe.potential_degree >= 1 &&
                   fe.pressure_degree >= 1 &&
                   fe.velocity_degree == fe.pressure_degree + 1,
-                ExcMessage("Quasi-incompressible CHNS requires equal "
+                ExcMessage("Quasi-incompressible CHNS requires "
                            "phase/potential degrees >= 1 and a Taylor-Hood "
                            "velocity/pressure pair (e.g. 2/1)."));
     AssertThrow(ch.epsilon_interface > 0. && ch.surface_tension > 0.,
@@ -142,7 +141,18 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   const bool quasi_incompressible =
     CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard);
   if (quasi_incompressible)
+  {
     check_quasi_incompressible_parameters(param, with_moving_mesh);
+    // The energy estimate tests the potential equation with phi^{n+1} - phi^n
+    // and the phase equation with mu^{n+1}: it needs equal spaces.
+    if (param.finite_elements.tracer_degree !=
+        param.finite_elements.potential_degree)
+      this->pcout << "Warning: the tracer and potential degrees differ; the "
+                     "discrete energy identity of the quasi-incompressible "
+                     "scheme may not hold."
+                  << std::endl;
+  }
+
   AssertThrow(quasi_incompressible ||
                 !(param.postprocessing.chns_conservation.enable ||
                   param.postprocessing.chns_energy.enable ||

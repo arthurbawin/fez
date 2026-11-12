@@ -59,8 +59,10 @@ void test_mobility()
   prm.set("mobility", "1e-6");
   prm.leave_subsection();
   param.read_parameters(prm);
-  AssertThrow(!param.enable_density_mobility_compensation,
-              ExcMessage("Density compensation must be disabled by default."));
+  AssertThrow(
+    !param.enable_density_mobility_compensation &&
+      !param.enable_quasi_incompressible_density_mobility_compensation,
+    ExcMessage("Density compensation must be disabled by default."));
 
   const std::array<std::array<double, 2>, 6> densities = {{{{1., 1.}},
                                                            {{2., 2.}},
@@ -179,9 +181,113 @@ void test_mobility()
   deallog << "dim " << dim << ": unsupported model rejected OK" << std::endl;
 }
 
+template <int dim>
+void test_quasi_mobility()
+{
+  ParameterHandler              prm;
+  Parameters::CahnHilliard<dim> param;
+  param.declare_parameters(prm);
+  prm.enter_subsection("Cahn Hilliard");
+  prm.set("CHNS model", "quasi_incompressible");
+  prm.set("mobility model", "degenerate_absolute");
+  prm.set("interface thickness", "0.00781");
+  prm.set("enable quasi incompressible density mobility compensation", "true");
+  prm.set("enable profile correction", "true");
+  prm.leave_subsection();
+  const double amplitude = 0.1 * 0.00781 * 0.00781;
+  for (const double maximum : {1., 100., 1000., 1.e8})
+  {
+    prm.enter_subsection("Cahn Hilliard");
+    prm.set("quasi incompressible density mobility compensation maximum",
+            std::to_string(maximum));
+    prm.leave_subsection();
+    param.read_parameters(prm);
+    check_close(CahnHilliard::profile_correction_amplitude(param),
+                2. * 0.6 * (3. / (2. * std::sqrt(2.))) / 0.00781 * amplitude);
+    for (const auto rho : std::array<std::array<double, 2>, 4>{
+           {{{1., 1.}}, {{1000., 100.}}, {{1000., 1.}}, {{1., 1000.}}}})
+      for (const double phi : {-1.2, -0.9999, -0.99, -0.8, 0., 0.9, 1.2})
+      {
+        const double mean    = 0.5 * (rho[0] + rho[1]);
+        const double clipped = std::max(-1., std::min(1., phi));
+        const double density =
+          0.5 * ((1. + clipped) * rho[0] + (1. - clipped) * rho[1]);
+        const double factor = std::min(std::pow(mean / density, 2), maximum);
+        const auto   result =
+          CahnHilliard::evaluate_mobility(param, phi, rho[0], rho[1]);
+        check_close(result.value,
+                    amplitude * std::abs(1. - phi * phi) * factor);
+        // A centered finite difference is not a derivative at a cap corner.
+        // Verify the prescribed saturated-side derivative there instead.
+        if (rho[0] == rho[1] ||
+            std::abs(std::pow(mean / density, 2) - maximum) > 1.e-8)
+          check_derivatives(param, phi, rho[0], rho[1]);
+        else
+        {
+          check_close(result.first_derivative, -2. * amplitude * phi * factor);
+          check_close(result.second_derivative, -2. * amplitude * factor);
+        }
+        if (std::abs(phi) < 1. && factor < maximum)
+          check_close(result.value * std::pow(density / mean, 2),
+                      amplitude * (1. - phi * phi));
+      }
+    for (const double phi : {-1., 1.})
+    {
+      const auto result =
+        CahnHilliard::evaluate_mobility(param, phi, 1000., 1.);
+      check_close(result.value, 0.);
+      check_close(result.first_derivative, 0.);
+    }
+  }
+  // The positive density extension is mandatory for this compensation even
+  // when the general property limiter is disabled. The mobility limiter is
+  // an independent option and can still suppress overshoot diffusion.
+  param.with_tracer_limiter     = false;
+  param.mobility_tracer_limiter = true;
+  for (const double phi : {-1.2, 1.2})
+    check_close(CahnHilliard::evaluate_mobility(param, phi, 1000., 1.).value,
+                0.);
+
+  prm.enter_subsection("Cahn Hilliard");
+  prm.set("CHNS model", "stepien");
+  prm.leave_subsection();
+  bool rejected = false;
+  try
+  {
+    param.read_parameters(prm);
+  }
+  catch (const std::exception &)
+  {
+    prm.leave_subsection();
+    rejected = true;
+  }
+  AssertThrow(rejected, ExcMessage("Quasi compensation must reject Stepien."));
+  prm.enter_subsection("Cahn Hilliard");
+  prm.set("CHNS model", "quasi_incompressible");
+  prm.set("quasi incompressible density mobility compensation maximum", "0");
+  prm.leave_subsection();
+  rejected = false;
+  try
+  {
+    param.read_parameters(prm);
+  }
+  catch (const std::exception &)
+  {
+    prm.leave_subsection();
+    rejected = true;
+  }
+  AssertThrow(rejected,
+              ExcMessage("A zero compensation cap must be rejected."));
+  deallog << "dim " << dim
+          << ": quasi compensation, caps, derivatives and extensions OK"
+          << std::endl;
+}
+
 int main()
 {
   initlog();
   test_mobility<2>();
   test_mobility<3>();
+  test_quasi_mobility<2>();
+  test_quasi_mobility<3>();
 }

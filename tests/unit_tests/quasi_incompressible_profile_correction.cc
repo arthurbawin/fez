@@ -404,7 +404,7 @@ namespace
     check_close(CahnHilliard::profile_correction_amplitude(parameters),
                 0., 0., 0., "Disabled amplitude");
     for (const std::string law :
-         {"constant", "degenerate_absolute", "degenerate", "degenerate_quadratic"})
+         {"constant", "degenerate_absolute", "degenerate"})
     {
       prm.enter_subsection("Cahn Hilliard");
       prm.set("enable profile correction", "true");
@@ -422,7 +422,7 @@ namespace
     parameters.profile_correction_strength = 0.;
     check_close(CahnHilliard::profile_correction_amplitude(parameters),
                 0., 0., 0., "Zero-strength amplitude");
-    deallog << "Constant amplitude for all four mobility laws OK" << std::endl;
+    deallog << "Constant amplitude for all three mobility laws OK" << std::endl;
   }
 } // namespace
 

@@ -1712,6 +1712,19 @@ namespace Parameters
         "base mobility M0, this gives M(phi)=M0*(rho0*rho1)^2/rho(phi)^2. "
         "Not supported by the Stabilization subsection.");
       prm.declare_entry(
+        "enable quasi incompressible density mobility compensation",
+        "false",
+        Patterns::Bool(),
+        "Quasi-incompressible only: multiply the base mobility by "
+        "min((rho_bar/rho_tilde(phi))^2, maximum), with rho_bar=(rho0+rho1)/2 "
+        "and rho_tilde evaluated on the phase clipped to [-1,1].");
+      prm.declare_entry(
+        "quasi incompressible density mobility compensation maximum",
+        "1000",
+        Patterns::Double(0.),
+        "Finite, strictly positive upper bound on the density compensation "
+        "multiplier, not on the complete mobility.");
+      prm.declare_entry(
         "enable mobility tracer limiter",
         "false",
         Patterns::Bool(),
@@ -1839,6 +1852,23 @@ namespace Parameters
         prm.get_double("degenerate absolute mobility prefactor");
       enable_density_mobility_compensation =
         prm.get_bool("enable density mobility compensation");
+      enable_quasi_incompressible_density_mobility_compensation = prm.get_bool(
+        "enable quasi incompressible density mobility compensation");
+      quasi_incompressible_density_mobility_compensation_maximum =
+        prm.get_double(
+          "quasi incompressible density mobility compensation maximum");
+      AssertThrow(
+        std::isfinite(
+          quasi_incompressible_density_mobility_compensation_maximum) &&
+          quasi_incompressible_density_mobility_compensation_maximum > 0.,
+        ExcMessage("Quasi-incompressible density mobility compensation maximum "
+                   "must be finite and strictly positive."));
+      AssertThrow(
+        !enable_quasi_incompressible_density_mobility_compensation ||
+          chns_model == CHNSModel::QuasiIncompressible,
+        ExcMessage(
+          "Quasi-incompressible density mobility compensation requires "
+          "CHNS model = quasi_incompressible."));
       enable_profile_correction = prm.get_bool("enable profile correction");
       profile_correction_strength = prm.get_double("profile correction strength");
       profile_correction_reference_mobility =

@@ -858,6 +858,9 @@ namespace Parameters
     double degenerate_absolute_mobility_prefactor = 0.1;
     // Multiply the base mobility by (rho0*rho1/rho(phi))^2 for Stepien.
     bool enable_density_mobility_compensation = false;
+    // Quasi-incompressible: min((rho_bar/rho(clip(phi)))^2, maximum).
+    bool   enable_quasi_incompressible_density_mobility_compensation  = false;
+    double quasi_incompressible_density_mobility_compensation_maximum = 1000.;
     bool   enable_profile_correction = false;
     double profile_correction_strength = 0.6;
     double profile_correction_reference_mobility = 0.;

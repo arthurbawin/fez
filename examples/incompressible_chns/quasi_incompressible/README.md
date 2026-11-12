@@ -50,6 +50,10 @@ de campagnes conservés ailleurs doivent employer ces noms pour être relancés.
 Les résultats archivés ne sont pas déplacés. Le fichier de diagnostics
 s'appelle maintenant `quasi_incompressible_diagnostics.csv`.
 
+La [mobilité compensée en densité](density_compensation.md) est également
+disponible, avec densité écrêtée et multiplicateur plafonné à 1000 par défaut.
+Elle peut être combinée avec la correction de profil reconstruite.
+
 Cette sélection représente la reformulation quasi incompressible du système
 analytique fourni, avec $p=P-\phi\mu$ et $M_{\rm doc}=k^2M$ ; le document
 précise ces conventions. Il n'y a pas de second solveur ou de modèle

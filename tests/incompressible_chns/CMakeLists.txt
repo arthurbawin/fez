@@ -70,6 +70,16 @@ if(Python3_Interpreter_FOUND)
     PROPERTIES TIMEOUT 1800 PROCESSORS 1
       FIXTURES_REQUIRED "test_dependency/incompressible_chns.executable")
   add_test(
+    NAME incompressible_chns/quasi_density_compensation
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/validate_quasi_density_compensation.py
+      --solver $<TARGET_FILE:incompressible_chns>
+      --workdir ${CMAKE_CURRENT_BINARY_DIR}/quasi_density_compensation
+      --suite core)
+  set_tests_properties(incompressible_chns/quasi_density_compensation
+    PROPERTIES TIMEOUT 1800 PROCESSORS 1
+      FIXTURES_REQUIRED "test_dependency/incompressible_chns.executable")
+  add_test(
     NAME incompressible_chns/quasi_incompressible_physics
     COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/validate_quasi_incompressible.py

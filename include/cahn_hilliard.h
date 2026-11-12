@@ -685,9 +685,10 @@ namespace CahnHilliard
 
   /**
    * Evaluate the base mobility and its derivatives with respect to the raw
-   * phase field, then optionally apply Stepien's density compensation.
+   * phase field, then optionally apply the selected density compensation.
    * The density uses the same property limiter as the phase equation; the
-   * base mobility uses its own limiter. Both chain rules are included.
+   * base mobility uses its own limiter. Quasi-incompressible compensation
+   * always uses the positive density extension. Both chain rules are included.
    */
   template <int dim>
   inline MobilityEvaluation
@@ -734,6 +735,47 @@ namespace CahnHilliard
                 get_mobility_second_derivative_function(param)(param,
                                                                mobility_phi) *
                   mobility_phi_derivative * mobility_phi_derivative};
+
+    if (param.enable_quasi_incompressible_density_mobility_compensation)
+    {
+      AssertThrow(is_quasi_incompressible_model(param) && density0 > 0. &&
+                    density1 > 0.,
+                  dealii::ExcMessage(
+                    "Quasi-incompressible density compensation "
+                    "requires positive constituent densities "
+                    "and the quasi_incompressible model."));
+      const double mean_density = 0.5 * (density0 + density1);
+      const double positive_density =
+        linear_mixing(tracer_limiter(phase_marker), density0, density1);
+      const double ratio           = mean_density / positive_density;
+      const double uncapped_factor = ratio * ratio;
+      const double maximum =
+        param.quasi_incompressible_density_mobility_compensation_maximum;
+      AssertThrow(std::isfinite(maximum) && maximum > 0.,
+                  dealii::ExcMessage("Density compensation maximum must be "
+                                     "finite and strictly positive."));
+      // At the cap choose the saturated-side generalized derivative. Outside
+      // [-1,1], rho_tilde is constant even if the base mobility is not clipped.
+      const bool   capped = uncapped_factor >= maximum;
+      const double factor = capped ? maximum : uncapped_factor;
+      const double logarithmic_density_derivative =
+        capped ?
+          0. :
+          0.5 * (density0 - density1) *
+            tracer_limiter_derivative(phase_marker, true) / positive_density;
+      const double base_value      = result.value;
+      const double base_derivative = result.first_derivative;
+      result.value *= factor;
+      result.first_derivative =
+        factor *
+        (base_derivative - 2. * logarithmic_density_derivative * base_value);
+      result.second_derivative =
+        factor * (result.second_derivative -
+                  4. * logarithmic_density_derivative * base_derivative +
+                  6. * logarithmic_density_derivative *
+                    logarithmic_density_derivative * base_value);
+      return result;
+    }
 
     if (!param.enable_density_mobility_compensation)
       return result;

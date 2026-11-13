@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 2
 end
@@ -14,7 +13,6 @@ subsection Output
 end
 
 subsection Mesh
-
   # Initial mesh file is given in the MMS subsection
 
   subsection Adaptation
@@ -37,11 +35,9 @@ subsection Metric tensor fields
   set number = 1
 
   subsection Metric field 0
-
-    set type      = interpolation error
-    set variable  = temperature
-    set component = 0
-
+    set type          = interpolation error
+    set variable      = temperature
+    set component     = 0
     set min mesh size = 1e-4
     set max mesh size = 10
 
@@ -55,7 +51,7 @@ subsection Metric tensor fields
       set use analytical derivatives = true
 
       # Unused, using the one in MMS section
-      set n target vertices          = 1000
+      set n target vertices = 1000
     end
 
     subsection Gradation
@@ -64,7 +60,7 @@ subsection Metric tensor fields
       set gradation      = 1.8
       set max iteration  = 100
       set tolerance      = 1e-4
-      set spanning space = metric 
+      set spanning space = metric
     end
   end
 end
@@ -83,9 +79,9 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
@@ -101,21 +97,25 @@ end
 
 subsection Heat boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = dirichlet_mms
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = dirichlet_mms
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = dirichlet_mms
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max
@@ -130,22 +130,22 @@ subsection Exact solution
 end
 
 subsection Manufactured solution
-  set enable                 = true
-  set type                   = space
-  set convergence steps      = 4
+  set enable            = true
+  set type              = space
+  set convergence steps = 4
 
   subsection Space convergence
     #set mesh prefix = ../tests/metric_based_adaptation/meshes/starting_mesh
-    set mesh prefix = ../../../starting_mesh
+    set mesh prefix                       = ../../../starting_mesh
     set initial target number of vertices = 200
-    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+    set norms to compute                  = L2_norm, Linfty_norm, H1_seminorm
   end
 
   subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 1
-    set time step reduction  = 0.5
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 1
+    set time step reduction = 0.5
   end
 end
 

@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 2
 end
@@ -14,7 +13,6 @@ subsection Output
 end
 
 subsection Mesh
-
   # Initial mesh file is given in the MMS subsection
 
   subsection Adaptation
@@ -37,25 +35,24 @@ subsection Metric tensor fields
   set number = 1
 
   subsection Metric field 0
-
-    set type      = interpolation error
-    set variable  = temperature
-    set component = 0
-
+    set type          = interpolation error
+    set variable      = temperature
+    set component     = 0
     set min mesh size = 1e-4
     set max mesh size = 10
 
     subsection Analytical scalar field
       # Exact solution
-      set Function constants = c = 1, delta = 0.1
-      set Function expression = tanh( (2*(x - c*t) - sin(5*y)) / delta)    
+      set Function constants  = c = 1, delta = 0.1
+      set Function expression = tanh( (2*(x - c*t) - sin(5*y)) / delta)
     end
 
     subsection Multiscale optimal metric for interpolation error
       set use analytical derivatives = true
+
       # Unused: using the target norm and vertices in the MMS section
-      set target norm                = L2_norm
-      set n target vertices          = 500
+      set target norm       = L2_norm
+      set n target vertices = 500
     end
 
     subsection Gradation
@@ -65,7 +62,7 @@ subsection Metric tensor fields
       set gradation      = 1.8
       set max iteration  = 100
       set tolerance      = 1e-4
-      set spanning space = metric 
+      set spanning space = metric
     end
   end
 end
@@ -88,9 +85,9 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
@@ -104,21 +101,25 @@ end
 
 subsection Heat boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = dirichlet_mms
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = dirichlet_mms
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = dirichlet_mms
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max
@@ -128,27 +129,27 @@ end
 
 subsection Exact solution
   subsection exact temperature
-    set Function constants = c=1, delta=0.1, x_0 = -0.
+    set Function constants  = c=1, delta=0.1, x_0 = -0.
     set Function expression = tanh( (2*(x - x_0 - c*t) - sin(5*y)) / delta)
   end
 end
 
 subsection Manufactured solution
-  set enable                 = true
-  set type                   = space
-  set convergence steps      = 1
+  set enable            = true
+  set type              = space
+  set convergence steps = 1
 
   subsection Space convergence
     #set mesh prefix = ../tests/metric_based_adaptation/meshes/starting_mesh
-    set mesh prefix = ../../../starting_mesh
+    set mesh prefix                       = ../../../starting_mesh
     set initial target number of vertices = 500
-    set norms to compute = L2_norm
+    set norms to compute                  = L2_norm
   end
 
   subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 1
-    set time step reduction  = 0.5
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 1
+    set time step reduction = 0.5
   end
 end

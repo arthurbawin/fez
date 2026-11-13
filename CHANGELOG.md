@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-13
+
+### Added
+Added indentation tools for the parameters files (in tests/ and examples/), and updated pull request template accordingly. Indented all .prm files. [#116](https://github.com/arthurbawin/fez/pull/116)
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

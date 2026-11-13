@@ -30,5 +30,5 @@
 - [ ] Changelog has been updated
 - [ ] Tests were added for a new functionality
 - [ ] The branch has been rebased onto master
-- [ ] Code is correctly formatted with contrib/utilities/indent-all
+- [ ] Code is correctly formatted with contrib/utilities/indent-all, tests and examples are formatted with contrib/utilities/indent-prm
 - [ ] No extraneous files have been added (e.g. CMake or compiler output or test data files)

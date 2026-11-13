@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 2
 end
@@ -14,7 +13,6 @@ subsection Output
 end
 
 subsection Mesh
-
   #set mesh file = ../tests/metric_based_adaptation/meshes/rising_bubble.msh
   set mesh file = ../../../rising_bubble.msh
 
@@ -35,15 +33,13 @@ subsection Mesh
 end
 
 subsection Metric tensor fields
-  set number = 1
+  set number                = 1
   set metric for adaptation = 0
 
   subsection Metric field 0
-
-    set type      = interpolation error
-    set variable  = phase_tracer
-    set component = 0
-
+    set type          = interpolation error
+    set variable      = phase_tracer
+    set component     = 0
     set min mesh size = 1e-10
     set max mesh size = 10
 
@@ -60,7 +56,7 @@ subsection Metric tensor fields
       set gradation      = 1.8
       set max iteration  = 100
       set tolerance      = 1e-4
-      set spanning space = metric 
+      set spanning space = metric
     end
   end
 end
@@ -83,34 +79,38 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
 subsection FiniteElements
-  set Velocity degree   = 2
-  set Pressure degree   = 1
-  set Tracer degree     = 1
-  set Potential degree  = 1
+  set Velocity degree  = 2
+  set Pressure degree  = 1
+  set Tracer degree    = 1
+  set Potential degree = 1
 end
 
 subsection Physical properties
   set number of fluids = 2
+
   subsection Fluid 0
     set density             = 1000
     set kinematic viscosity = 0.01
   end
+
   subsection Fluid 1
     set density             = 100
     set kinematic viscosity = 0.01
   end
   set number of pseudosolids = 1
+
   subsection Pseudosolid 0
     subsection lame lambda
       set Function expression = 2
     end
+
     subsection lame mu
       set Function expression = 2
     end
@@ -130,31 +130,36 @@ subsection Initial conditions
   subsection velocity
     set Function expression = 0; 0
   end
+
   subsection cahn hilliard tracer
     set Function constants  = eps=2e-2, R0=0.25, xc=0.5, yc=0.5
-    set Function expression =tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))
+    set Function expression = tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))
   end
 end
 
 subsection Fluid boundary conditions
-  set number = 4
-  set fix pressure constant = true
+  set number                     = 4
+  set fix pressure constant      = true
   set enforce zero mean pressure = false
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = slip
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = slip
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = no_slip
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max
@@ -164,21 +169,25 @@ end
 
 subsection CahnHilliard boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = no_flux
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = no_flux
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = no_flux
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max

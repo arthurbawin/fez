@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 3
 end
@@ -33,9 +32,9 @@ end
 
 subsection Linear solver
   subsection linear elasticity
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
@@ -45,12 +44,14 @@ end
 
 subsection Physical properties
   set number of pseudosolids = 1
+
   subsection Pseudosolid 0
     set constitutive model = neo hookean
 
     subsection lame lambda
       set Function expression = 1 + 0.2 * sin(pi*x) * cos(pi*y) * cos(pi*z)
     end
+
     subsection lame mu
       set Function expression = 1 + 0.2 * sin(pi*x) * sin(pi*y) * sin(pi*z)
     end
@@ -59,31 +60,37 @@ end
 
 subsection Pseudosolid boundary conditions
   set number = 6
+
   subsection boundary 0
     set id   = 0
     set name = x_min
     set type = position_mms
   end
+
   subsection boundary 1
     set id   = 1
     set name = x_max
     set type = position_mms
   end
+
   subsection boundary 2
     set id   = 2
     set name = y_min
     set type = position_mms
   end
+
   subsection boundary 3
     set id   = 3
     set name = y_max
     set type = position_mms
   end
+
   subsection boundary 4
     set id   = 4
     set name = z_min
     set type = position_mms
   end
+
   subsection boundary 5
     set id   = 5
     set name = z_max

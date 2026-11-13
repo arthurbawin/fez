@@ -1,18 +1,17 @@
-
 # This test assesses the convergence of the monolithic FSI solver
 # for the following configuration:
 #
-# - Prescribed mesh movement with a pre-set manufactured field 
+# - Prescribed mesh movement with a pre-set manufactured field
 #   (RigidMeshMovement), controlled with preset_fsi_mms_moving = true.
 #   This mesh position MMS is for now controlled within the solver.
 #
 # - Manufactured velocity and pressure prescribed below.
-#   The prescribed fields vary in space and time and are not captured 
+#   The prescribed fields vary in space and time and are not captured
 #   exactly by P2-P1 elements or BDF2 integrator.
-# 
+#
 # An L2/inf spatial norm and an Linf time norm are considered.
 # At least 2nd order is obtained for space-time convergence for all
-# fields, showing that the time-dependent boundary conditions should be 
+# fields, showing that the time-dependent boundary conditions should be
 # correctly implemented.
 #
 # In this test, weakly enforced boundary conditions are not tested.
@@ -29,9 +28,9 @@ subsection Timer
 end
 
 subsection Output
-  set write vtu results    = false
-  set output directory = ../data/mms/
-  set output prefix    = solution
+  set write vtu results = false
+  set output directory  = ../data/mms/
+  set output prefix     = solution
 end
 
 subsection Mesh
@@ -57,9 +56,9 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
@@ -72,16 +71,18 @@ end
 
 subsection Physical properties
   set number of fluids = 1
+
   subsection Fluid 0
     set density             = 1
     set kinematic viscosity = 1
   end
-
   set number of pseudosolids = 1
+
   subsection Pseudosolid 0
     subsection lame lambda
       set Function expression = 1
     end
+
     subsection lame mu
       set Function expression = 1
     end
@@ -99,13 +100,15 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 2
+  set number                = 2
   set fix pressure constant = true
+
   subsection boundary 0
     set id   = 2
     set name = OuterBoundary
     set type = velocity_mms
   end
+
   subsection boundary 1
     set id   = 3
     set name = InnerBoundary
@@ -115,11 +118,13 @@ end
 
 subsection Pseudosolid boundary conditions
   set number = 2
+
   subsection boundary 0
     set id   = 2
     set name = OuterBoundary
     set type = position_mms
   end
+
   subsection boundary 1
     set id   = 3
     set name = InnerBoundary
@@ -131,6 +136,7 @@ subsection Exact solution
   subsection exact velocity
     set Function expression = cos(t) * (x^3 + y^3); cos(x*y) * t^3
   end
+
   subsection exact pressure
     set Function expression = sin(x+y) * cos(t)
   end
@@ -138,6 +144,7 @@ subsection Exact solution
   subsection exact mesh displacement
     subsection space component
       set preset = rigid_motion_kernel
+
       subsection rigid_motion_kernel
         set translation = 0.1, 0.05
         set r0          = 0.15
@@ -145,6 +152,7 @@ subsection Exact solution
         set center      = 0.5, 0.5
       end
     end
+
     subsection time component
       set Function expression = 0.5 * sin(2.*pi*t)
     end
@@ -160,13 +168,13 @@ subsection Manufactured solution
     set use dealii cube mesh        = false
     set use dealii holed plate mesh = false # Could also be used
     set mesh prefix                 = ../../mms_meshes/holed
-    set norms to compute = L2_norm, Linfty_norm
+    set norms to compute            = L2_norm, Linfty_norm
   end
 
   subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 2
-    set time step reduction  = 0.5
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 2
+    set time step reduction = 0.5
   end
 end

@@ -1,0 +1,40 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 1304
+ boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 6118
+Newton iter.  0:          nonlinear residual = 4.28303208e+00
+	Line search with alpha = 1.000 : res = 6.55542232e+00
+	Line search with alpha = 0.500 : res = 2.75455798e+00
+Newton iter.  1:          nonlinear residual = 2.75455798e+00	(M)
+	Line search with alpha = 1.000 : res = 2.10694273e+01
+	Line search with alpha = 0.500 : res = 5.32174741e+00
+	Line search with alpha = 0.250 : res = 2.34664196e+00
+Newton iter.  2:          nonlinear residual = 2.34664196e+00	(M)
+	Line search with alpha = 1.000 : res = 8.45110142e+00
+	Line search with alpha = 0.500 : res = 2.32152504e+00
+Newton iter.  3:          nonlinear residual = 2.32152504e+00	(M)
+	Line search with alpha = 1.000 : res = 1.08797841e+02
+	Line search with alpha = 0.500 : res = 2.71487528e+01
+	Line search with alpha = 0.250 : res = 6.90876506e+00
+	Line search with alpha = 0.125 : res = 2.56269659e+00
+	Line search with alpha = 0.062 : res = 2.19026307e+00
+Newton iter.  4:          nonlinear residual = 2.19026307e+00	(M)
+	Line search with alpha = 1.000 : res = 6.45991357e+00
+	Line search with alpha = 0.500 : res = 2.00758121e+00
+Newton iter.  5:          nonlinear residual = 2.00758121e+00	(M)
+	Line search with alpha = 1.000 : res = 2.24111901e+00
+	Line search with alpha = 0.500 : res = 1.19035511e+00
+Newton iter.  6:          nonlinear residual = 1.19035511e+00	(M)
+Newton iter.  7:          nonlinear residual = 6.82147536e-01	(M)
+Newton iter.  8:          nonlinear residual = 1.03003267e-01	(M)
+Newton iter.  9:          nonlinear residual = 2.94352740e-03	(M)
+Newton iter. 10:          nonlinear residual = 3.94944546e-06	(M)
+Newton iter. 11:          nonlinear residual = 1.04287922e-11	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)

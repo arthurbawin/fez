@@ -7,7 +7,12 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ## [0.0.0] 2026-11-16
 
 ### Changed
-Renamed the standalone `linear_elasticity` solver to `elasticity`, including its classes, examples, tests and VTU output suffix. Rename the `Linear elasticity` parameter subsection to `Elasticity`, and `Linear solver/linear elasticity` to `Linear solver/elasticity` in existing parameter files. The `linear elasticity` constitutive model and the numerical algorithms are unchanged.
+Renamed the standalone `linear_elasticity` solver to `elasticity`, including its classes, examples, tests and VTU output suffix. Rename the `Linear elasticity` parameter subsection to `Elasticity`, and `Linear solver/linear elasticity` to `Linear solver/elasticity` in existing parameter files. The `linear elasticity` constitutive model and the numerical algorithms are unchanged. [#125](https://github.com/arthurbawin/fez/pull/125)
+
+## [0.0.0] 2026-11-14
+
+### Fixed
+Removed erroneous face contribution to the Jacobian matrix when applying weak pressure boundary conditions in the compressible solver. [#117](https://github.com/arthurbawin/fez/pull/117)
 
 ## [0.0.0] 2026-11-13
 

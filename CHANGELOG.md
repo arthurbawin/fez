@@ -6,6 +6,9 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 
 ## [0.0.0] 2026-11-14
 
+### Added
+Support initializing compressible Navier–Stokes simulations from incompressible checkpoints, including velocity, pressure, temperature and BDF history transfer. Add regression coverage for analytical field transfer, native compressible restart, stationary-to-BDF startup and uniform-state continuation on one and two MPI ranks.
+
 ### Fixed
 Correct BDF coefficient storage and initialization after restarting from a stationary checkpoint. Add regression tests for BDF1 and both BDF2 startup strategies.
 

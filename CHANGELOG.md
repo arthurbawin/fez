@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-15
+
+### Fixed
+Correct compressible Navier–Stokes boundary forces in the shared postprocessing handler by using dimensional pressure perturbations without density scaling and the compressible viscous stress. Add analytical 2D/3D regression tests for standard and hp elements, per-face forces, slices and MPI reduction.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

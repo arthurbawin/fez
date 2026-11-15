@@ -1,0 +1,5 @@
+
+DEAL::2d standard analytical forces, face reset, slices and dispatch OK
+DEAL::2d hp analytical forces, face reset, slices and dispatch OK
+DEAL::3d standard analytical forces, face reset, slices and dispatch OK
+DEAL::3d hp analytical forces, face reset, slices and dispatch OK

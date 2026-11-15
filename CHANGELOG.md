@@ -12,6 +12,8 @@ Renamed the standalone `linear_elasticity` solver to `elasticity`, including its
 ## [0.0.0] 2026-11-14
 
 ### Fixed
+Correct BDF coefficient storage and initialization after restarting from a stationary checkpoint. Add regression tests for BDF1 and both BDF2 startup strategies.
+
 Removed erroneous face contribution to the Jacobian matrix when applying weak pressure boundary conditions in the compressible solver. [#117](https://github.com/arthurbawin/fez/pull/117)
 
 ## [0.0.0] 2026-11-13

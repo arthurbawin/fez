@@ -1,0 +1,9 @@
+
+DEAL::2d rotation function, center and time OK
+DEAL::2d rotating-mask validation OK
+DEAL::2d no_slip rotating, homogeneous and disabled constraints OK
+DEAL::2d input_function rotating, homogeneous and disabled constraints OK
+DEAL::3d rotation function, center and time OK
+DEAL::3d rotating-mask validation OK
+DEAL::3d no_slip rotating, homogeneous and disabled constraints OK
+DEAL::3d input_function rotating, homogeneous and disabled constraints OK

@@ -90,7 +90,10 @@ namespace BoundaryConditions
       prm.declare_entry("enable",
                         "false",
                         Patterns::Bool(),
-                        "Enable/disable rigid-body rotation on this boundary");
+                        "Enable rigid-body rotation. For no_slip and "
+                        "input_function boundaries, this replaces component "
+                        "functions and requires all velocity components "
+                        "to be constrained.");
       const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
       prm.declare_entry("center of rotation",
                         default_point,
@@ -183,6 +186,13 @@ namespace BoundaryConditions
       prm.leave_subsection();
     }
     prm.leave_subsection();
+
+    if (enable_rigid_body_rotation &&
+        (type == Type::no_slip || type == Type::input_function))
+      AssertThrow(constrain_u && constrain_v && (dim < 3 || constrain_w),
+                  ExcMessage("Fluid BC " + std::to_string(this->id) +
+                             ": rigid body rotation requires all velocity "
+                             "components to be constrained."));
   }
 
   template <int dim>
@@ -544,13 +554,25 @@ namespace BoundaryConditions
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
-        VectorTools::interpolate_boundary_values(
-          mapping,
-          dof_handler,
-          bc.id,
-          Functions::ZeroFunction<dim>(n_components),
-          constraints,
-          make_partial_velocity_mask(bc));
+        if (homogeneous || !bc.enable_rigid_body_rotation)
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
+        else
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            RigidBodyVelocity<dim>(u_lower,
+                                   n_components,
+                                   bc.center_of_rotation,
+                                   *bc.angular_velocity),
+            constraints,
+            make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -560,6 +582,17 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
+        else if (bc.enable_rigid_body_rotation)
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            RigidBodyVelocity<dim>(u_lower,
+                                   n_components,
+                                   bc.center_of_rotation,
+                                   *bc.angular_velocity),
             constraints,
             make_partial_velocity_mask(bc));
         else

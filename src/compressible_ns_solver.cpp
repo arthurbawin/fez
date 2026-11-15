@@ -1,3 +1,4 @@
+#include <assembly/sponge_layer.h>
 #include <compare_matrix.h>
 #include <compressible_ns_solver.h>
 #include <deal.II/base/multithread_info.h>
@@ -602,6 +603,16 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     }
   }
 
+  // Relax the solution toward the sponge reference state.
+  {
+    const Assembly::SpongeMaterialConstants material{rho_ref, p_ref, T_ref, cp};
+    Assembly::sponge_layer_matrix<dim>(*this->ordering,
+                                       this->param.sponge_layer,
+                                       material,
+                                       scratch_data,
+                                       local_matrix);
+  }
+
   //
   // Face contributions
   //
@@ -856,6 +867,16 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
     }
+  }
+
+  // Relax the solution toward the sponge reference state.
+  {
+    const Assembly::SpongeMaterialConstants material{rho_ref, p_ref, T_ref, cp};
+    Assembly::sponge_layer_rhs<dim>(*this->ordering,
+                                    this->param.sponge_layer,
+                                    material,
+                                    scratch_data,
+                                    local_rhs);
   }
 
   //

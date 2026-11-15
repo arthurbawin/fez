@@ -40,6 +40,41 @@ If deal.II was compiled with SymEngine and CMake was run with -DENABLE_TESTING=1
 
     $ ctest
 
+Compressible sponge layers
+--------------------------
+
+The compressible Navier–Stokes solver supports optional numerical relaxation
+of velocity, pressure perturbation and temperature perturbation toward a
+reference state. Both bands are disabled by default. For example:
+
+```text
+subsection Sponge Layer
+  subsection outflow
+    set enable = true
+    set x_start = 8
+    set x_end = 10
+    set sigma_max = 1
+    set u = 1
+    set v = 0
+    set p_ref = 0
+    set T_ref = 0
+  end
+end
+```
+
+The outflow rate follows a quintic ramp from zero at `x_start` to `sigma_max`
+at `x_end`, and remains at `sigma_max` downstream. The `inflow` subsection
+accepts the same parameters with a mirrored ramp and an upstream plateau.
+Enabled bands require `x_start < x_end`; `sigma_max` must be nonnegative and
+has units of inverse time. Overlapping bands add their rates and use the
+rate-weighted reference state.
+
+Here, `p_ref` and `T_ref` denote perturbations, rather than the absolute
+reference pressure and temperature specified under `Physical properties`.
+The reference velocity has configurable `u` and `v` components; its third
+component is zero in 3D. Relaxation modifies the equations where the rate is
+nonzero, so the reference state should match the intended far-field state.
+
 License:
 --------
 

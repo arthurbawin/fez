@@ -9,6 +9,8 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ### Added
 Allow selecting constrained velocity components for strong fluid boundary conditions through constrain_u, constrain_v and constrain_w. Add 2D and 3D regression tests for component selection, prescribed values and parameter validation.
 
+Apply prescribed rigid-body rotation to strong no_slip and input_function fluid boundaries, including time-dependent angular velocities in 2D and 3D. Require complete velocity component masks for these rotating strong boundaries.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

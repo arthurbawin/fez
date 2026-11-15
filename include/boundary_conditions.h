@@ -132,6 +132,16 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
     std::shared_ptr<Functions::ParsedFunction<dim>> p;
 
+    /**
+     * Velocity components constrained by no_slip, input_function and
+     * velocity_mms boundaries. Other boundary types ignore these flags.
+     * All velocity components are constrained by default; constrain_w is
+     * ignored in two dimensions.
+     */
+    bool constrain_u = true;
+    bool constrain_v = true;
+    bool constrain_w = true;
+
     // Tolerance on no slip enforcement with a Lagrange multiplier
     double weak_no_slip_tolerance;
 

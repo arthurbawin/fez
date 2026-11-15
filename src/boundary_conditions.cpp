@@ -43,6 +43,24 @@ namespace BoundaryConditions
         "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
       "Type of fluid boundary condition");
 
+    // Select Cartesian components for strong velocity conditions.
+    prm.declare_entry("constrain_u",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain x-velocity for no_slip, input_function and "
+                      "velocity_mms boundaries. Ignored by other types.");
+    prm.declare_entry("constrain_v",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain y-velocity for no_slip, input_function and "
+                      "velocity_mms boundaries. Ignored by other types.");
+    prm.declare_entry("constrain_w",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain z-velocity for no_slip, input_function and "
+                      "velocity_mms boundaries in 3D. Ignored in 2D and by "
+                      "other types.");
+
     // Imposed functions, if any
     prm.enter_subsection("u");
     u->declare_parameters(prm);
@@ -125,6 +143,17 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    constrain_u = prm.get_bool("constrain_u");
+    constrain_v = prm.get_bool("constrain_v");
+    constrain_w = dim == 3 && prm.get_bool("constrain_w");
+
+    if (type == Type::no_slip || type == Type::input_function ||
+        type == Type::velocity_mms)
+      AssertThrow(constrain_u || constrain_v || constrain_w,
+                  ExcMessage("Fluid BC " + std::to_string(this->id) +
+                             ": at least one velocity component must be "
+                             "constrained."));
 
     prm.enter_subsection("u");
     u->parse_parameters(prm);
@@ -492,9 +521,16 @@ namespace BoundaryConditions
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints)
   {
-    const FEValuesExtractors::Vector velocity(u_lower);
-    const ComponentMask              velocity_mask =
-      dof_handler.get_fe().component_mask(velocity);
+    const auto make_partial_velocity_mask =
+      [&](const BoundaryConditions::FluidBC<dim> &bc) {
+        std::vector<bool> mask(n_components, false);
+        mask[u_lower] = bc.constrain_u;
+        if constexpr (dim >= 2)
+          mask[u_lower + 1] = bc.constrain_v;
+        if constexpr (dim == 3)
+          mask[u_lower + 2] = bc.constrain_w;
+        return ComponentMask(mask);
+      };
 
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
@@ -508,24 +544,24 @@ namespace BoundaryConditions
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 velocity_mask);
+        VectorTools::interpolate_boundary_values(
+          mapping,
+          dof_handler,
+          bc.id,
+          Functions::ZeroFunction<dim>(n_components),
+          constraints,
+          make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
-          VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   velocity_mask);
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -534,25 +570,26 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
-            velocity_mask);
+            make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
-          VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   velocity_mask);
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
                                                    exact_solution,
                                                    constraints,
-                                                   velocity_mask);
+                                                   make_partial_velocity_mask(
+                                                     bc));
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);

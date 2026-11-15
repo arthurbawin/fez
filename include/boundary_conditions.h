@@ -429,11 +429,11 @@ namespace BoundaryConditions
 } // namespace BoundaryConditions
 
 /**
- * A function with @p n_components, but whose goal is only to be called for
- * the component @p field_component, for which it returns the value return by
- * the given callback @p field_fun.
+ * Embed the scalar callback @p field_fun in component @p field_component
+ * of a function with @p n_components. All other components return zero.
  *
- * It returns 0 for all other vector components.
+ * Vector evaluation may request every component before a boundary component
+ * mask is applied, so evaluating an unselected component is valid.
  */
 template <int dim>
 class ScalarFunctionFromComponents : public Function<dim>
@@ -455,7 +455,6 @@ public:
   {
     if (component == field_component)
       return field_fun.value(p);
-    DEAL_II_ASSERT_UNREACHABLE();
     return 0.;
   }
 };

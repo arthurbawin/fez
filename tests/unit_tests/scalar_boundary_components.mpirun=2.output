@@ -1,0 +1,5 @@
+
+DEAL::2D scalar and vector evaluation OK
+DEAL::3D scalar and vector evaluation OK
+DEAL::2D pressure and temperature constraints OK
+DEAL::3D pressure and temperature constraints OK

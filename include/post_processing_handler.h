@@ -824,42 +824,40 @@ void PostProcessingHandler<dim>::compute_forces(
   std::vector<Tensor<1, dim>> force_per_face(
     dof_handler.get_triangulation().n_faces());
 
-  const auto compute_on_boundary =
-    [&](const types::boundary_id     boundary_id,
-        std::vector<Tensor<1, dim>> &force_per_face) {
-      Tensor<1, dim> forces;
-      switch (forces_param.method)
+  const auto compute_on_boundary = [&](const types::boundary_id boundary_id,
+                                       std::vector<Tensor<1, dim>>
+                                         &force_per_face) {
+    Tensor<1, dim> forces;
+    switch (forces_param.method)
+    {
+      case Forces::ComputationMethod::stress_vector:
       {
-        case Forces::ComputationMethod::stress_vector:
+        method = "stress_vector";
+        const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
+        const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
+        AssertThrow(
+          !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
+          ExcMessage(
+            "Force computation must be modified for the Cahn-Hilliard "
+            "solver. It must recover the true pressure from the computed "
+            "one, and use the density and viscosity of the mixture."));
+        const double mu = physical_properties.fluids[0].dynamic_viscosity;
+        if (ordering.has_variable(SolverInfo::VariableType::temperature))
         {
-          method = "stress_vector";
-          const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
-          const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
-
-          /**
-           * Depending on the model solved in each solver, the pressure is
-           * scaled by either the fluid density, or is modified (in the
-           * Cahn-Hilliard solver), and must be postprocessed to recover the
-           * true pressure for force evaluation.
-           *
-           * FIXME1: the pressure scale below currently handles only the NS
-           * solvers. Each solver should provide a routine to recover the true
-           * pressure
-           *
-           * FIXME2: we must take the density and viscosity of the mixture for
-           * CHNS solvers
-           */
-
-          AssertThrow(
-            !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
-            ExcMessage(
-              "Force computation must be modified for the Cahn-Hilliard "
-              "solver. It must recover the true pressure from the computed "
-              "one, and use the density and viscosity of the mixture."));
-
+          forces = PostProcessingTools::compute_compressible_forces_on_boundary(
+            dof_handler,
+            mapping,
+            face_quadrature,
+            solution,
+            boundary_id,
+            velocity_extractor,
+            pressure_extractor,
+            mu,
+            force_per_face);
+        }
+        else
+        {
           const double pressure_scale = physical_properties.fluids[0].density;
-          const double mu = physical_properties.fluids[0].dynamic_viscosity;
-
           forces =
             PostProcessingTools::compute_forces_on_boundary(dof_handler,
                                                             mapping,
@@ -871,36 +869,36 @@ void PostProcessingHandler<dim>::compute_forces(
                                                             pressure_scale,
                                                             mu,
                                                             force_per_face);
-          break;
         }
-        case Forces::ComputationMethod::lagrange_multiplier:
-        {
-          method = "lagrange_multiplier";
-          AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
-                      ExcMessage(
-                        "Cannot compute forces with a Lagrange multiplier "
-                        "because the chosen solver does not have a Lagrange "
-                        "multiplier variable."));
-
-          const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
-          const double rho = physical_properties.fluids[0].density;
-          forces           = PostProcessingTools::
-            compute_forces_on_boundary_with_lagrange_multiplier(
-              dof_handler,
-              mapping,
-              face_quadrature,
-              solution,
-              boundary_id,
-              lambda_extractor,
-              rho,
-              force_per_face);
-          break;
-        }
-        default:
-          DEAL_II_NOT_IMPLEMENTED();
+        break;
       }
-      return forces;
-    };
+      case Forces::ComputationMethod::lagrange_multiplier:
+      {
+        method = "lagrange_multiplier";
+        AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
+                    ExcMessage(
+                      "Cannot compute forces with a Lagrange multiplier "
+                      "because the chosen solver does not have a Lagrange "
+                      "multiplier variable."));
+
+        const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
+        const double rho = physical_properties.fluids[0].density;
+        forces           = PostProcessingTools::
+          compute_forces_on_boundary_with_lagrange_multiplier(dof_handler,
+                                                              mapping,
+                                                              face_quadrature,
+                                                              solution,
+                                                              boundary_id,
+                                                              lambda_extractor,
+                                                              rho,
+                                                              force_per_face);
+        break;
+      }
+      default:
+        DEAL_II_NOT_IMPLEMENTED();
+    }
+    return forces;
+  };
 
   std::map<types::boundary_id, Tensor<1, dim>> forces_per_boundary;
   for (const auto id : forces_param.boundary_ids)

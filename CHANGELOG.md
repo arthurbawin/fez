@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-15
+
+### Added
+Add optional inflow and outflow sponge layers to the compressible Navier–Stokes solver, with quintic relaxation profiles and consistently blended reference states. Add profile, parameter, residual/Jacobian and uniform-relaxation regression tests.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

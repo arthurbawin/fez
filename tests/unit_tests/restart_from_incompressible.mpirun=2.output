@@ -1,0 +1,27 @@
+
+DEAL:0::time handler OK
+DEAL:0::present solution OK
+DEAL:0::previous solutions OK
+DEAL:0::OK
+DEAL:0::analytic transfer and distinct BDF2 histories OK
+DEAL:0::native compressible restart OK
+DEAL:0::steady to BDF1 OK
+DEAL:0::steady to BDF2 OK
+DEAL:0::steady to BDF2_BDF1_start OK
+DEAL:0::uniform continuation BDF1 OK
+DEAL:0::uniform continuation BDF2 OK
+DEAL:0::uniform continuation BDF2_BDF1_start OK
+
+DEAL:1::time handler OK
+DEAL:1::present solution OK
+DEAL:1::previous solutions OK
+DEAL:1::OK
+DEAL:1::analytic transfer and distinct BDF2 histories OK
+DEAL:1::native compressible restart OK
+DEAL:1::steady to BDF1 OK
+DEAL:1::steady to BDF2 OK
+DEAL:1::steady to BDF2_BDF1_start OK
+DEAL:1::uniform continuation BDF1 OK
+DEAL:1::uniform continuation BDF2 OK
+DEAL:1::uniform continuation BDF2_BDF1_start OK
+

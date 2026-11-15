@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-15
+
+### Fixed
+Allow scalar boundary functions to return zero for other components during vector evaluation. Add 2D and 3D regression tests for pressure and temperature constraints on mixed finite elements.
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

@@ -15,6 +15,7 @@
 #include <linear_elasticity_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_admissibility.h>
 #include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -364,6 +365,13 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
+}
+
+template <int dim>
+bool LinearElasticitySolver<dim>::is_trial_admissible() const
+{
+  return mesh_is_admissible(
+    *mapping, dof_handler, *quadrature, position_extractor, evaluation_point);
 }
 
 template <int dim>

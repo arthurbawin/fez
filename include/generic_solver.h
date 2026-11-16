@@ -130,6 +130,13 @@ public:
   virtual void assemble_rhs() = 0;
 
   /**
+   * Check whether evaluation_point is admissible before residual assembly.
+   * Overrides must return the same decision on every MPI rank, including
+   * ranks with no locally owned cells. The default imposes no restriction.
+   */
+  virtual bool is_trial_admissible() const { return true; }
+
+  /**
    * Solve the linear system described by the assembly functions above.
    */
   virtual void solve_linear_system() = 0;

@@ -118,6 +118,12 @@ public:
 
   virtual void assemble_rhs() override;
 
+  /**
+   * Check that det(grad_X x) is finite and positive at the assembly quadrature
+   * points. This does not certify validity elsewhere in the cell.
+   */
+  bool is_trial_admissible() const override;
+
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchData &scratchData,

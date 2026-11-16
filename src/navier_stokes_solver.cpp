@@ -12,6 +12,7 @@
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_admissibility.h>
 #include <navier_stokes_solver.h>
 #include <post_processing_handler.h>
 #include <solver_info.h>
@@ -495,6 +496,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
   previous_solutions->resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : *previous_solutions)
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+}
+
+template <int dim, bool with_moving_mesh>
+bool NavierStokesSolver<dim, with_moving_mesh>::is_trial_admissible() const
+{
+  if constexpr (with_moving_mesh)
+    return mesh_is_admissible(*fixed_mapping,
+                              *dof_handler,
+                              *quadrature,
+                              position_extractor,
+                              evaluation_point);
+  return true;
 }
 
 template <int dim, bool with_moving_mesh>

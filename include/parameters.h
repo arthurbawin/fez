@@ -639,6 +639,9 @@ namespace Parameters
     double       divergence_tolerance;
     unsigned int max_iterations;
     bool         enable_line_search;
+    // Number of accepted residuals in the nonmonotone line-search window.
+    unsigned int line_search_memory  = 3;
+    unsigned int max_backtrack_steps = 4;
     bool         analytic_jacobian;
     Verbosity    verbosity;
 

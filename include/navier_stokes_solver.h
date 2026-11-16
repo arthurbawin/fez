@@ -65,6 +65,9 @@ public:
 
   virtual ~NavierStokesSolver() = default;
 
+  /** Check the trial position before assembly for all moving-mesh solvers. */
+  bool is_trial_admissible() const override;
+
 public:
   /**
    * Solve: either solve for the steady-state solution, or integrate

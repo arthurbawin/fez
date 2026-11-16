@@ -1162,10 +1162,31 @@ namespace Parameters
                         "1",
                         Patterns::Integer(),
                         "Maximum number of Newton iterations");
-      prm.declare_entry("enable_line_search",
-                        "true",
-                        Patterns::Bool(),
-                        "Enable line search");
+      prm.declare_entry(
+        "enable_line_search",
+        "true",
+        Patterns::Bool(),
+        "Legacy switch: false also disables Line search/enable.");
+      prm.enter_subsection("Line search");
+      {
+        prm.declare_entry("enable",
+                          "true",
+                          Patterns::Bool(),
+                          "Enable line search");
+        prm.declare_entry(
+          "max backtrack steps",
+          "4",
+          Patterns::Integer(1),
+          "Maximum number of trials, including alpha = 1. "
+          "Each rejection halves alpha; 11 trials reach 1/1024.");
+        prm.declare_entry("memory",
+                          "3",
+                          Patterns::Integer(1),
+                          "Number of recent accepted residuals in the line "
+                          "search reference. 1 enforces monotone decrease. "
+                          "History resets at each nonlinear solve.");
+      }
+      prm.leave_subsection();
       prm.declare_entry(
         "analytic_jacobian",
         "true",
@@ -1214,6 +1235,13 @@ namespace Parameters
       divergence_tolerance = prm.get_double("divergence_tolerance");
       max_iterations       = prm.get_integer("max_iterations");
       enable_line_search   = prm.get_bool("enable_line_search");
+      prm.enter_subsection("Line search");
+      {
+        enable_line_search  = enable_line_search && prm.get_bool("enable");
+        max_backtrack_steps = prm.get_integer("max backtrack steps");
+        line_search_memory  = prm.get_integer("memory");
+      }
+      prm.leave_subsection();
       analytic_jacobian    = prm.get_bool("analytic_jacobian");
       prm.enter_subsection("reassembly heuristic");
       {

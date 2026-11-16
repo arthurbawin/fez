@@ -8,7 +8,9 @@
 #include <nonlinear_solver.h>
 #include <time_handler.h>
 
+#include <algorithm>
 #include <cmath>
+#include <deque>
 
 /**
  * Generic Newton nonlinear solver.
@@ -35,7 +37,7 @@ public:
     unsigned int iter           = 0;
     // double       norm_increment = 0;
     double norm_residual = 0;
-    double last_residual;
+    double last_residual          = 0.;
     bool   recompute_rhs          = true;
     bool   assemble               = false;
     bool   preconditioner_rebuilt = false;
@@ -56,7 +58,20 @@ public:
       time_handler.is_starting_step() ||
       time_handler.last_step_was_starting_step();
 
-    solver->evaluation_point = present_solution;
+    time_handler.set_last_nonlinear_solve_status(false);
+    solver->evaluation_point       = present_solution;
+    solver->local_evaluation_point = present_solution;
+    VectorType accepted_rhs;
+    accepted_rhs = solver->system_rhs;
+    // Save each validated iterate in present_solution, with or without line search.
+    // Restore both evaluation vectors and the saved RHS on failure.
+    const auto restore_iterate = [&]() {
+      solver->evaluation_point       = present_solution;
+      solver->local_evaluation_point = present_solution;
+      solver->system_rhs             = accepted_rhs;
+    };
+    // Local to this solve: never reuse history across time/continuation steps.
+    std::deque<double> residual_history;
 
     while (true)
     {
@@ -64,6 +79,14 @@ public:
       // Linfty norm does not scale with the number of RHS entries
       if (recompute_rhs)
       {
+        if (!solver->is_trial_admissible())
+        {
+          restore_iterate();
+          if (throw_on_failure)
+            throw std::runtime_error("Nonlinear solver: inadmissible iterate");
+          else
+            break;
+        }
         solver->assemble_rhs();
         norm_residual = solver->system_rhs.l2_norm();
       }
@@ -89,10 +112,20 @@ public:
       if (!std::isfinite(norm_residual) ||
           (iter > 0 && norm_residual > this->param.divergence_tolerance))
       {
+        restore_iterate();
         if (throw_on_failure)
           throw std::runtime_error("Nonlinear solver diverged");
         else
           break;
+      }
+
+      present_solution = solver->evaluation_point;
+      accepted_rhs     = solver->system_rhs;
+      if (this->param.enable_line_search)
+      {
+        residual_history.push_back(norm_residual);
+        if (residual_history.size() > this->param.line_search_memory)
+          residual_history.pop_front();
       }
 
       if (iter == 0)
@@ -132,34 +165,46 @@ public:
         // Fraction of the residual decrease predicted by the linearization
         // that a step must achieve to be accepted (Armijo condition)
         constexpr double armijo_coeff = 1e-4;
-        // Smallest step length tried before the line search fails
-        // This is 1 / 2^10, so 11 attempts total.
-        constexpr double min_alpha = 1. / 1024.;
 
         double norm_ls_residual;
         bool   step_accepted = false;
         last_residual        = norm_residual;
+        const double reference_residual =
+          *std::max_element(residual_history.begin(), residual_history.end());
 
-        for (double alpha = 1.; alpha >= min_alpha; alpha /= 2.)
+        double alpha = 1.;
+        for (unsigned int trial = 0;
+             trial < this->param.max_backtrack_steps && alpha > 0.;
+             ++trial, alpha /= 2.)
         {
-          // Compute NL(u + alpha * du) and check if residual decreases
+          // Evaluate a trial step from the last accepted iterate.
           solver->local_evaluation_point = present_solution;
           solver->local_evaluation_point.add(alpha, solver->newton_update);
           solver->distribute_nonzero_constraints();
           solver->evaluation_point = solver->local_evaluation_point;
+          if (!solver->is_trial_admissible())
+          {
+            if (verbose)
+              solver->pcout << "\tLine search with alpha = " << alpha
+                            << " : inadmissible trial" << std::endl;
+            continue;
+          }
           solver->assemble_rhs(); // NL(u + alpha * du)
           norm_ls_residual = solver->system_rhs.l2_norm();
 
           // Accept step if the residual is below tolerance, or if the Armijo
-          // sufficient decrease condition is satisfied: the residual decreased
-          // by at least a fraction armijo_coeff of the decrease
-          // alpha * norm_residual predicted by the linearization.
+          // sufficient decrease condition is satisfied relative to the maximum
+          // of the last accepted residuals. Keep this reference fixed during
+          // backtracking; rejected trials never enter the history.
+          // A window of one recovers the monotone Armijo condition.
           // Reject a non-finite (e.g., with NaNs) residual, and try again with
           // a smaller alpha.
           const bool accepted =
             std::isfinite(norm_ls_residual) &&
+            norm_ls_residual <= this->param.divergence_tolerance &&
             (norm_ls_residual <= this->param.tolerance ||
-             norm_ls_residual <= (1. - armijo_coeff * alpha) * norm_residual);
+             norm_ls_residual <=
+               reference_residual - armijo_coeff * alpha * norm_residual);
 
           // An accepted full step is reported by the next Newton iteration
           // summary. Otherwise the same residual is printed twice, which is
@@ -182,14 +227,13 @@ public:
 
         if (!step_accepted)
         {
-          // No step length down to min_alpha decreases the residual enough,
-          // e.g., because the initial guess is too far from the solution.
-          // Restore the last iterate and exit with nonconverged solution.
+          // No admissible trial satisfied the acceptance criterion.
+          // Restore the last accepted state before reporting failure.
           if (verbose)
             solver->pcout << "\tLine search failed: no step length satisfies "
                              "the Armijo condition"
                           << std::endl;
-          solver->evaluation_point = present_solution;
+          restore_iterate();
           if (throw_on_failure)
             throw std::runtime_error("Nonlinear solver line search failed");
           else
@@ -200,9 +244,6 @@ public:
         // instead of reassembling.
         recompute_rhs = false;
         norm_residual = norm_ls_residual;
-
-        // Update present solution for the next line search
-        present_solution = solver->evaluation_point;
       }
       else
       {

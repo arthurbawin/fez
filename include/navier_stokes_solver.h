@@ -65,9 +65,6 @@ public:
 
   virtual ~NavierStokesSolver() = default;
 
-  /** Check the trial position before assembly for all moving-mesh solvers. */
-  bool is_trial_admissible() const override;
-
 public:
   /**
    * Solve: either solve for the steady-state solution, or integrate
@@ -182,6 +179,13 @@ public:
    * Create the volume and boundary assemblers for this solver.
    */
   virtual void setup_assemblers() = 0;
+
+  /**
+   * Check whether the evaluation_point yields a well-defined residual. For
+   * solvers with a moving mesh, this checks if the position variable stored in
+   * evaluation_point yields a valid mesh at a given set of quadrature points.
+   */
+  bool evaluation_point_is_valid() const override;
 
   /**
    * For solvers with hp capabilities, set the active fe index on each owned

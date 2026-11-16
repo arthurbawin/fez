@@ -12,7 +12,6 @@
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
-#include <mesh_admissibility.h>
 #include <navier_stokes_solver.h>
 #include <post_processing_handler.h>
 #include <solver_info.h>
@@ -499,18 +498,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 }
 
 template <int dim, bool with_moving_mesh>
-bool NavierStokesSolver<dim, with_moving_mesh>::is_trial_admissible() const
-{
-  if constexpr (with_moving_mesh)
-    return mesh_is_admissible(*fixed_mapping,
-                              *dof_handler,
-                              *quadrature,
-                              position_extractor,
-                              evaluation_point);
-  return true;
-}
-
-template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
 {
   TimerOutput::Scope t(computing_timer, "Setup mappings");
@@ -552,6 +539,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
       moving_mapping = std::make_unique<MappingFE<dim>>(
         FE_SimplexP<dim>(param.finite_elements.mapping_degree));
   }
+}
+
+template <int dim, bool with_moving_mesh>
+bool NavierStokesSolver<dim, with_moving_mesh>::evaluation_point_is_valid()
+  const
+{
+  if constexpr (with_moving_mesh)
+    return mesh_is_valid(*moving_mapping, *triangulation, *quadrature);
+  return true;
 }
 
 template <int dim, bool with_moving_mesh>

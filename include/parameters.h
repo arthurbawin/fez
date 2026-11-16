@@ -635,15 +635,23 @@ namespace Parameters
 
   struct NonLinearSolver
   {
+    Verbosity verbosity;
+
     double       tolerance;
     double       divergence_tolerance;
     unsigned int max_iterations;
-    bool         enable_line_search;
-    // Number of accepted residuals in the nonmonotone line-search window.
-    unsigned int line_search_memory  = 3;
-    unsigned int max_backtrack_steps = 4;
     bool         analytic_jacobian;
-    Verbosity    verbosity;
+
+    struct LineSearch
+    {
+      bool enable;
+
+      // Max number of trial steps, including the full step alpha = 1
+      unsigned int max_backtrack_steps;
+
+      // Number of accepted residuals in the nonmonotone line-search window
+      unsigned int memory;
+    } line_search;
 
     double reassembly_decrease_tol;
 

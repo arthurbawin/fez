@@ -6,6 +6,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/hp/fe_values.h>
@@ -627,6 +628,107 @@ inline double compute_q_criterion(const DoubleArrayType &velocity_gradient,
     }
 
   return 0.5 * (norm_antisym_squared - norm_sym_squared);
+}
+
+/**
+ * Check that the mesh described by @p moving_mapping is valid, that is, that
+ * the Jacobian determinant of the mapping is positive at the points of
+ * @p quadrature, on all locally owned cells of @p triangulation. Only the provided
+ * quadrature points are checked, so the mesh cells can of course be invalid at
+ * other points.
+ *
+ * This function is intended for a MappingFEField whose Euler vector is (part
+ * of) the solution, to detect intermediary solutions (e.g., in the nonlinear
+ * solver) that tangle the mesh.
+ *
+ * @note Only the Jacobians are requested from the mapping: requesting the JxW values
+ * triggers an assertion in debug on distorted cells, which is exactly what this
+ * function reports instead.
+ *
+ * @note The determinant must exceed the threshold of that assertion,
+ * 1e-12 * (h / sqrt(dim))^dim with h the diameter of the cell on the
+ * triangulation, rather than zero. A mesh accepted by this function can thus
+ * be assembled on in debug mode without triggering the assertion.
+ */
+template <int dim>
+bool mesh_is_valid(const Mapping<dim>       &moving_mapping,
+                   const Triangulation<dim> &triangulation,
+                   const Quadrature<dim>    &quadrature)
+{
+  // Only geometric quantities are needed, so no finite element is required.
+  const FE_Nothing<dim> fe;
+  FEValues<dim> fe_values(moving_mapping, fe, quadrature, update_jacobians);
+
+  bool valid = true;
+  for (const auto &cell : triangulation.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+    fe_values.reinit(cell);
+    const double det_min =
+      1e-12 * Utilities::fixed_power<dim>(cell->diameter() /
+                                          std::sqrt(static_cast<double>(dim)));
+    for (const unsigned int q : fe_values.quadrature_point_indices())
+    {
+      const double det = fe_values.jacobian(q).determinant();
+      if (!std::isfinite(det) || det <= det_min)
+      {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid)
+      break;
+  }
+  return Utilities::MPI::logical_and(valid,
+                                     triangulation.get_mpi_communicator());
+}
+
+/**
+ * Check that the position field x(X), given by the @p position components of
+ * @p evaluation_point, describes a valid mesh, that is, that det(grad_X x) is
+ * positive at the points of @p quadrature on all locally owned cells of
+ * @p dof_handler.
+ *
+ * This function does the same as mesh_is_valid(), but does so for a position
+ * field that would describe a MappingFEField, such as the solution of the
+ * elasticity solver.
+ */
+template <int dim, typename VectorType>
+bool position_field_is_valid(const Mapping<dim>               &mapping,
+                             const DoFHandler<dim>            &dof_handler,
+                             const Quadrature<dim>            &quadrature,
+                             const FEValuesExtractors::Vector &position,
+                             const VectorType                 &evaluation_point)
+{
+  FEValues<dim>               fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_gradients);
+  std::vector<Tensor<2, dim>> position_gradients(quadrature.size());
+
+  bool valid = true;
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+    fe_values.reinit(cell);
+    fe_values[position].get_function_gradients(evaluation_point,
+                                               position_gradients);
+    for (const auto &grad_x : position_gradients)
+    {
+      const double det = determinant(grad_x);
+      if (!std::isfinite(det) || det <= 0.)
+      {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid)
+      break;
+  }
+  return Utilities::MPI::logical_and(
+    valid, dof_handler.get_triangulation().get_mpi_communicator());
 }
 
 #endif

@@ -15,7 +15,6 @@
 #include <linear_elasticity_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
-#include <mesh_admissibility.h>
 #include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -368,9 +367,9 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 }
 
 template <int dim>
-bool LinearElasticitySolver<dim>::is_trial_admissible() const
+bool LinearElasticitySolver<dim>::evaluation_point_is_valid() const
 {
-  return mesh_is_admissible(
+  return position_field_is_valid(
     *mapping, dof_handler, *quadrature, position_extractor, evaluation_point);
 }
 

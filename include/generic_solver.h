@@ -130,11 +130,16 @@ public:
   virtual void assemble_rhs() = 0;
 
   /**
-   * Check whether evaluation_point is admissible before residual assembly.
-   * Overrides must return the same decision on every MPI rank, including
-   * ranks with no locally owned cells. The default imposes no restriction.
+   * Check whether the evaluation_point yields a well-defined residual (i.e.,
+   * finite and without NaNs). This is useful, e.g., when the position field is
+   * part of the solution vector, in which case an ill-formed position field may
+   * cause some mesh elements to become invalid (inverted).
+   *
+   * This returns true by default, and is overridden by solvers whose nonlinear
+   * residual has a risk of being ill-defined (e.g., that involves a
+   * MappingFEField, logarithms (ElasticitySolver), etc.).
    */
-  virtual bool is_trial_admissible() const { return true; }
+  virtual bool evaluation_point_is_valid() const;
 
   /**
    * Solve the linear system described by the assembly functions above.
@@ -363,6 +368,12 @@ protected:
 };
 
 /* ---------------- Template functions ----------------- */
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::evaluation_point_is_valid() const
+{
+  return true;
+}
 
 template <typename VectorType>
 VectorType &GenericSolver<VectorType>::get_evaluation_point()

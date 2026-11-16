@@ -25,11 +25,10 @@ subsection Nonlinear solver
   set tolerance            = 1e-8
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
-  set enable_line_search   = true
   set analytic_jacobian    = true
 
   subsection Line search
-    set max backtrack steps = 11
+    set max backtrack steps = 8
   end
 end
 

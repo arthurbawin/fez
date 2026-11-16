@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 2
 end
@@ -14,7 +13,6 @@ subsection Output
 end
 
 subsection Mesh
-
   set dealii preset mesh     = rectangle
   set dealii mesh parameters = 10, 5 : -2, -1. : 2., 1. : true
   set refinement level       = 1
@@ -54,9 +52,9 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = false
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = false
   end
 end
 
@@ -71,21 +69,25 @@ end
 
 subsection Heat boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 0
     set name = x_min
     set type = dirichlet_mms
   end
+
   subsection boundary 1
     set id   = 1
     set name = x_max
     set type = dirichlet_mms
   end
+
   subsection boundary 2
     set id   = 2
     set name = y_min
     set type = dirichlet_mms
   end
+
   subsection boundary 3
     set id   = 3
     set name = y_max
@@ -95,15 +97,15 @@ end
 
 subsection Exact solution
   subsection exact temperature
-    set Function constants = c=0, delta=0.1, x_0 = -0.
+    set Function constants  = c=0, delta=0.1, x_0 = -0.
     set Function expression = tanh( (2*(x - x_0 - c*t) - sin(5*y)) / delta)
   end
 end
 
 subsection Manufactured solution
-  set enable                 = true
-  set type                   = space
-  set convergence steps      = 2
+  set enable            = true
+  set type              = space
+  set convergence steps = 2
 
   subsection Space convergence
     set norms to compute = L2_norm, Linfty_norm, H1_seminorm

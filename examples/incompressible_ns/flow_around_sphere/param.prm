@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 3
 end
@@ -19,7 +18,7 @@ end
 
 subsection Time integration
   #set verbosity        = quiet
-  set scheme           = stationary
+  set scheme = stationary
 end
 
 subsection Nonlinear solver
@@ -32,18 +31,19 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  set verbosity = quiet
+  set method    = direct_mumps
+  set reuse     = true
 end
 
 subsection FiniteElements
-  set Velocity degree            = 2
-  set Pressure degree            = 1
+  set Velocity degree = 2
+  set Pressure degree = 1
 end
 
 subsection Physical properties
   set number of fluids = 1
+
   subsection Fluid 0
     set density             = 1
     set kinematic viscosity = 10
@@ -57,48 +57,58 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 7
+  set number                     = 7
   set fix pressure constant      = false
   set enforce zero mean pressure = false
+
   subsection boundary 0
     set id   = 1
     set name = Outlet
     set type = outflow
   end
+
   subsection boundary 1
     set id   = 2
     set name = Back
     set type = slip
   end
+
   subsection boundary 2
     set id   = 3
     set name = Top
     set type = slip
   end
+
   subsection boundary 3
     set id   = 4
     set name = Front
     set type = slip
   end
+
   subsection boundary 4
     set id   = 5
     set name = Bottom
     set type = slip
   end
+
   subsection boundary 5
     set id   = 6
     set name = Inlet
     set type = input_function
+
     subsection u
       set Function expression = 1
     end
+
     subsection v
       set Function expression = 0
     end
+
     subsection w
       set Function expression = 0
     end
   end
+
   subsection boundary 6
     set id   = 7
     set name = Sphere

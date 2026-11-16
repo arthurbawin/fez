@@ -17,7 +17,6 @@ subsection Output
 end
 
 subsection Mesh
-
   # Given in the MMS subsection
 
 end
@@ -38,9 +37,9 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
@@ -56,31 +55,37 @@ end
 
 subsection Heat boundary conditions
   set number = 6
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = dirichlet_mms
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = dirichlet_mms
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = dirichlet_mms
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max
     set type = dirichlet_mms
   end
+
   subsection boundary 4
     set id   = 5
     set name = z_min
     set type = dirichlet_mms
   end
+
   subsection boundary 5
     set id   = 6
     set name = z_max
@@ -95,12 +100,12 @@ subsection Exact solution
 end
 
 subsection Manufactured solution
-  set enable                 = true
-  set type                   = space
-  set convergence steps      = 2
+  set enable            = true
+  set type              = space
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true
-    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+    set norms to compute     = L2_norm, Linfty_norm, H1_seminorm
   end
 end

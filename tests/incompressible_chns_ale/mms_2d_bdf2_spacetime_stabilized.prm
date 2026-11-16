@@ -57,19 +57,23 @@ end
 
 subsection Physical properties
   set number of fluids = 2
+
   subsection Fluid 0
     set density             = 1.1
     set kinematic viscosity = 2
   end
+
   subsection Fluid 1
     set density             = 1
     set kinematic viscosity = 1
   end
   set number of pseudosolids = 1
+
   subsection Pseudosolid 0
     subsection lame lambda
       set Function expression = 1
     end
+
     subsection lame mu
       set Function expression = 1
     end
@@ -91,21 +95,25 @@ end
 subsection Fluid boundary conditions
   set number                = 4
   set fix pressure constant = true
+
   subsection boundary 0
     set id   = 0
     set name = x_min
     set type = velocity_mms
   end
+
   subsection boundary 1
     set id   = 1
     set name = x_max
     set type = velocity_mms
   end
+
   subsection boundary 2
     set id   = 2
     set name = y_min
     set type = velocity_mms
   end
+
   subsection boundary 3
     set id   = 3
     set name = y_max
@@ -115,21 +123,25 @@ end
 
 subsection Pseudosolid boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 0
     set name = x_min
     set type = position_mms
   end
+
   subsection boundary 1
     set id   = 1
     set name = x_max
     set type = position_mms
   end
+
   subsection boundary 2
     set id   = 2
     set name = y_min
     set type = position_mms
   end
+
   subsection boundary 3
     set id   = 3
     set name = y_max
@@ -139,21 +151,25 @@ end
 
 subsection CahnHilliard boundary conditions
   set number = 4
+
   subsection boundary 0
     set id   = 0
     set name = x_min
     set type = dirichlet_mms
   end
+
   subsection boundary 1
     set id   = 1
     set name = x_max
     set type = dirichlet_mms
   end
+
   subsection boundary 2
     set id   = 2
     set name = y_min
     set type = dirichlet_mms
   end
+
   subsection boundary 3
     set id   = 3
     set name = y_max
@@ -165,16 +181,20 @@ subsection Exact solution
   subsection exact velocity
     set Function expression = sin(pi*x)*cos(pi*y)*t^4; sin(pi*y)*cos(pi*x)*t^4
   end
+
   subsection exact pressure
     set Function expression = sin(pi*x)*cos(pi*y)*t^4
   end
+
   subsection exact mesh displacement
-    set Function constants = xb=1, yb=2, A=0.08
+    set Function constants  = xb=1, yb=2, A=0.08
     set Function expression = x + (x - xb/2) * A * t^4 * sin(2*pi*y/yb); y + (y - yb/2) * A * t^4 * sin(2*pi*x/xb)
   end
+
   subsection exact cahn hilliard tracer
     set Function expression = sin(pi*y)*cos(pi*x)*t^4
   end
+
   subsection exact cahn hilliard potential
     set Function expression = sin(pi*y)*cos(pi*x)*t^4
   end

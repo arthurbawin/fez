@@ -1,0 +1,44 @@
+# Adapted from the deal.II "indent.yml" workflow
+
+name: indent
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  indent:
+    name: indent
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install clang-format 16
+      run: |
+        pip install clang-format==16.0.6
+        clang-format --version
+
+    - name: Format source files
+      run: ./contrib/utilities/indent-all
+
+    - name: Format parameter files
+      run: ./contrib/utilities/indent-prm
+
+    - name: Check for changes
+      run: |
+        git diff --stat
+        git diff --exit-code

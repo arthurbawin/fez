@@ -1,4 +1,3 @@
-
 subsection Dimension
   set dimension = 2
 end
@@ -8,9 +7,9 @@ subsection Timer
 end
 
 subsection Output
-  set write vtu results    = false
-  set output directory = ../data/mms/
-  set output prefix    = solution
+  set write vtu results = false
+  set output directory  = ../data/mms/
+  set output prefix     = solution
 end
 
 subsection Mesh
@@ -36,8 +35,8 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
+    set verbosity = quiet
+    set method    = direct_mumps
   end
 end
 
@@ -48,6 +47,7 @@ end
 
 subsection Physical properties
   set number of fluids = 1
+
   subsection Fluid 0
     set density             = 1.2345
     set kinematic viscosity = 9.8765
@@ -59,23 +59,27 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 4
+  set number                = 4
   set fix pressure constant = true
+
   subsection boundary 0
     set id   = 1
     set name = x_min
     set type = velocity_mms
   end
+
   subsection boundary 1
     set id   = 2
     set name = x_max
     set type = velocity_mms
   end
+
   subsection boundary 2
     set id   = 3
     set name = y_min
     set type = velocity_mms
   end
+
   subsection boundary 3
     set id   = 4
     set name = y_max
@@ -85,8 +89,9 @@ end
 
 subsection Exact solution
   subsection exact velocity
-    set Function expression =sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2)
+    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2)
   end
+
   subsection exact pressure
     set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * sin(t)
   end
@@ -99,14 +104,13 @@ subsection Manufactured solution
 
   subsection Space convergence
     set use dealii cube mesh = true
-    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+    set norms to compute     = L2_norm, Linfty_norm, H1_seminorm
   end
 
   subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 1
-    set time step reduction  = 0.5
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 1
+    set time step reduction = 0.5
   end
 end
-

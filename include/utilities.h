@@ -680,8 +680,9 @@ bool mesh_is_valid(const Mapping<dim>       &moving_mapping,
     if (!valid)
       break;
   }
-  return Utilities::MPI::logical_and(valid,
-                                     triangulation.get_mpi_communicator());
+
+  return Utilities::MPI::min(static_cast<unsigned int>(valid),
+                             triangulation.get_mpi_communicator()) == 1;
 }
 
 /**
@@ -727,8 +728,10 @@ bool position_field_is_valid(const Mapping<dim>               &mapping,
     if (!valid)
       break;
   }
-  return Utilities::MPI::logical_and(
-    valid, dof_handler.get_triangulation().get_mpi_communicator());
+
+  return Utilities::MPI::min(
+           static_cast<unsigned int>(valid),
+           dof_handler.get_triangulation().get_mpi_communicator()) == 1;
 }
 
 #endif

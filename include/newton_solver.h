@@ -36,7 +36,7 @@ public:
     bool         solution_found = false;
     unsigned int iter           = 0;
     // double       norm_increment = 0;
-    double norm_residual = 0;
+    double norm_residual          = 0;
     double last_residual          = 0.;
     bool   recompute_rhs          = true;
     bool   assemble               = false;
@@ -63,8 +63,8 @@ public:
     solver->local_evaluation_point = present_solution;
     VectorType accepted_rhs;
     accepted_rhs = solver->system_rhs;
-    // Save each validated iterate in present_solution, with or without line search.
-    // Restore both evaluation vectors and the saved RHS on failure.
+    // Save each validated iterate in present_solution, with or without line
+    // search. Restore both evaluation vectors and the saved RHS on failure.
     const auto restore_iterate = [&]() {
       solver->evaluation_point       = present_solution;
       solver->local_evaluation_point = present_solution;

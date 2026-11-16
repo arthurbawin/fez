@@ -1242,7 +1242,7 @@ namespace Parameters
         line_search_memory  = prm.get_integer("memory");
       }
       prm.leave_subsection();
-      analytic_jacobian    = prm.get_bool("analytic_jacobian");
+      analytic_jacobian = prm.get_bool("analytic_jacobian");
       prm.enter_subsection("reassembly heuristic");
       {
         reassembly_decrease_tol = prm.get_double("decrease tolerance");

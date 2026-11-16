@@ -108,7 +108,7 @@ end
 subsection Exact solution
   subsection exact mesh displacement
     # Keep the manufactured deformation orientation-preserving.
-    set Function constants = amplitude=0.1
+    set Function constants  = amplitude=0.1
     set Function expression = x + amplitude*sin(pi*x)*cos(pi*y)*cos(pi*z); y + amplitude*cos(pi*x)*sin(pi*y)*sin(pi*z); z + amplitude*sin(pi*x)*sin(pi*y)*cos(pi*z)
   end
 end

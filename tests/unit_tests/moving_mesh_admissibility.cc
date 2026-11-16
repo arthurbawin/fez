@@ -27,6 +27,12 @@ public:
     else
       MeshTools::read_mesh(this->triangulation, this->param);
     this->setup_dofs();
+    if constexpr (!fluid_solver)
+    {
+      // This fixture bypasses run(), which initializes the source multipliers.
+      this->scratch_data->source_term_fixed_mesh_multiplier  = 1.;
+      this->scratch_data->source_term_moving_mesh_multiplier = 0.;
+    }
   }
 
   double rhs_norm() const { return this->system_rhs.l2_norm(); }

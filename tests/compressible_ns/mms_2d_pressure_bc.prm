@@ -27,6 +27,10 @@ subsection Nonlinear solver
   set max_iterations       = 50
   set enable_line_search   = true
   set analytic_jacobian    = true
+
+  subsection Line search
+    set max backtrack steps = 11
+  end
 end
 
 subsection Linear solver

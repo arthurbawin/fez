@@ -59,16 +59,14 @@ public:
       time_handler.last_step_was_starting_step();
 
     time_handler.set_last_nonlinear_solve_status(false);
-    solver->evaluation_point       = present_solution;
-    solver->local_evaluation_point = present_solution;
+    solver->evaluation_point = present_solution;
     VectorType accepted_rhs;
     accepted_rhs = solver->system_rhs;
     // Save each validated iterate in present_solution, with or without line
-    // search. Restore both evaluation vectors and the saved RHS on failure.
+    // search. Restore the ghosted evaluation point and saved RHS on failure.
     const auto restore_iterate = [&]() {
-      solver->evaluation_point       = present_solution;
-      solver->local_evaluation_point = present_solution;
-      solver->system_rhs             = accepted_rhs;
+      solver->evaluation_point = present_solution;
+      solver->system_rhs       = accepted_rhs;
     };
     // Local to this solve: never reuse history across time/continuation steps.
     std::deque<double> residual_history;

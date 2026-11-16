@@ -57,8 +57,7 @@ public:
 
   void check_state(const double expected) const
   {
-    for (const auto *v :
-         {&solution, &evaluation_point, &local_evaluation_point})
+    for (const auto *v : {&solution, &evaluation_point})
       AssertThrow(std::abs((*v)[mpi_rank] - expected) < 1e-12,
                   ExcMessage("Unexpected solution/evaluation point"));
   }
@@ -160,11 +159,23 @@ void check_case(const Case &test, const bool adaptive)
                 ExcMessage("Incorrect nonlinear convergence status"));
   }
 
+  // Restart after failure without restoring the local scratch vector.
+  if (!test.success)
+  {
+    const double root = test.expected + 1.;
+    solver.residual   = [root](double x) { return root - x; };
+    newton.solve(handler);
+    solver.check_state(root);
+    solver.check_ghosts(root);
+    solver.check_rhs(0.);
+  }
+
   // Reuse the very same Newton object: a previous maximum must not survive
   // into the next nonlinear solve (time step or continuation stage).
   if (test.success && test.memory > 1)
   {
-    solver.solution = 0.;
+    solver.get_local_evaluation_point() = 0.;
+    solver.solution                     = solver.get_local_evaluation_point();
     solver.residual = [](double x) { return x == 0. ? 1. : 2.; };
     threw           = false;
     try

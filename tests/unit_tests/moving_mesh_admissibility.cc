@@ -5,7 +5,6 @@
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
 
-#include <cfenv>
 #include <limits>
 #include <type_traits>
 
@@ -108,9 +107,12 @@ void check_solver(const ParameterReader<dim> &param,
   for (const double value : {std::numeric_limits<double>::quiet_NaN()})
   {
     solver.set_position(1.);
+    // Suspend traps only for the intentional NaN, using PETSc's trap state.
+    AssertThrow(PetscFPTrapPush(PETSC_FP_TRAP_OFF) == 0, ExcInternalError());
     solver.set_nonfinite_position(value);
-    AssertThrow(!solver.is_trial_admissible(),
-                ExcMessage("Non-finite deformation was accepted"));
+    const bool admissible = solver.is_trial_admissible();
+    AssertThrow(PetscFPTrapPop() == 0, ExcInternalError());
+    AssertThrow(!admissible, ExcMessage("Non-finite deformation was accepted"));
   }
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     deallog << name << " dim=" << dim << " degree=" << degree << " OK"
@@ -279,9 +281,6 @@ void check_geometry(const unsigned int degree)
 int main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
-#ifdef DEAL_II_HAVE_FP_EXCEPTIONS
-  fedisableexcept(FE_INVALID | FE_DIVBYZERO);
-#endif
   deal_II_exceptions::disable_abort_on_exception();
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     initlog();

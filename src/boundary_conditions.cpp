@@ -167,6 +167,23 @@ namespace BoundaryConditions
                         "position_mms|position_flux_mms"),
                       "Type of pseudosolid boundary condition");
 
+    prm.declare_entry("constrain_x",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain the x position component for input_function "
+                      "boundary conditions. Ignored for other types.");
+    prm.declare_entry("constrain_y",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain the y position component for input_function "
+                      "boundary conditions. Ignored for other types.");
+    prm.declare_entry(
+      "constrain_z",
+      "true",
+      Patterns::Bool(),
+      "Constrain the z position component for input_function "
+      "boundary conditions. Ignored in 2D and for other types.");
+
     // Input component functions, same pattern as FluidBC u/v/w
     prm.enter_subsection("x");
     x->declare_parameters(prm);
@@ -209,6 +226,15 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    constrain_x = prm.get_bool("constrain_x");
+    constrain_y = prm.get_bool("constrain_y");
+    constrain_z = dim == 3 && prm.get_bool("constrain_z");
+    if (type == Type::input_function)
+      AssertThrow(constrain_x || constrain_y || constrain_z,
+                  ExcMessage("Pseudosolid BC " + std::to_string(this->id) +
+                             ": at least one position component must be "
+                             "constrained."));
 
     prm.enter_subsection("x");
     x->parse_parameters(prm);
@@ -334,8 +360,9 @@ namespace BoundaryConditions
   /**
    * Adds the flux constraints stored in @p boundary_constraints to
    * @p flux_constraints, an existing set of constraints. This set may already
-   * store flux constraints involving the same vector components, in which case
-   * the new constraints are inserted into the existing ones, resolving chains
+   * store flux or prescribed-component constraints involving the same vector
+   * components, in which case the new constraints are inserted into the
+   * existing ones, resolving chains
    * of constraints if needed.
    *
    * By default, the behavior of deal.II's
@@ -364,11 +391,16 @@ namespace BoundaryConditions
    * This eliminates previously constrained pivots and leaves an equation
    * involving the remaining DoFs. If no independent equation remains, check
    * that the right-hand side is compatible with the existing constraints.
+   *
+   * If @p priority_dofs is provided, skip flux rows whose pivots already
+   * have priority: caller-provided constraints and boundaries prescribing the
+   * complete vector retain their existing precedence.
    */
   void add_independent_flux_constraints(
     AffineConstraints<double> &boundary_constraints,
     AffineConstraints<double> &flux_constraints,
-    const double               prescribed_value_scale = 0.)
+    const double               prescribed_value_scale = 0.,
+    const IndexSet            *priority_dofs          = nullptr)
   {
     boundary_constraints.close();
 
@@ -381,6 +413,8 @@ namespace BoundaryConditions
       pending;
     for (const auto &line : boundary_constraints.get_lines())
     {
+      if (priority_dofs != nullptr && priority_dofs->is_element(line.index))
+        continue;
       coefficients.clear();
       pending.clear();
       pending.emplace_back(line.index, 1.);
@@ -703,6 +737,7 @@ namespace BoundaryConditions
       dof_handler.get_fe().component_mask(position);
 
     Functions::ZeroFunction<dim> zero_fun(n_components);
+    Functions::ZeroFunction<dim> zero_position(dim);
     FixedMeshPosition<dim>       fixed_mesh(x_lower, n_components);
     FixedMeshPosition<dim>       fixed_mesh_for_flux(0, dim);
     const Function<dim>         *fun_ptr;
@@ -718,10 +753,37 @@ namespace BoundaryConditions
     std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
     std::map<types::boundary_id, const Function<dim> *>
       mms_position_flux_functions;
+
+    // Only input_function selects a subset of the position components.
+    // Components left out of this mask remain free.
+    const auto make_partial_position_mask =
+      [&](const BoundaryConditions::PseudosolidBC<dim> &bc) {
+        std::vector<bool> mask(n_components, false);
+        mask[x_lower] = bc.constrain_x;
+        if constexpr (dim >= 2)
+          mask[x_lower + 1] = bc.constrain_y;
+        if constexpr (dim == 3)
+          mask[x_lower + 2] = bc.constrain_z;
+        return ComponentMask(mask);
+      };
+
+    const bool has_partial_position = std::any_of(
+      pseudosolid_bc.begin(), pseudosolid_bc.end(), [](const auto &entry) {
+        const auto &bc = entry.second;
+        return bc.type == BoundaryConditions::Type::input_function &&
+               (!bc.constrain_x || !bc.constrain_y ||
+                (dim == 3 && !bc.constrain_z));
+      });
+    IndexSet priority_dofs(dof_handler.n_dofs());
+    if (has_partial_position)
+      for (const auto &line : constraints.get_lines())
+        priority_dofs.add_index(line.index);
+    std::set<types::boundary_id> fully_prescribed_boundaries;
     for (const auto &[id, bc] : pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed)
       {
+        fully_prescribed_boundaries.insert(bc.id);
         if (homogeneous)
           fun_ptr = &zero_fun;
         else
@@ -731,9 +793,12 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        const ComponentMask partial_mask = make_partial_position_mask(bc);
+        if (partial_mask.n_selected_components() == dim)
+          fully_prescribed_boundaries.insert(bc.id);
         if (homogeneous)
           VectorTools::interpolate_boundary_values(
-            mapping, dof_handler, bc.id, zero_fun, constraints, position_mask);
+            mapping, dof_handler, bc.id, zero_fun, constraints, partial_mask);
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -742,10 +807,11 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               x_lower, n_components, *bc.x, *bc.y, *bc.z),
             constraints,
-            position_mask);
+            partial_mask);
       }
       if (bc.type == BoundaryConditions::Type::position_mms)
       {
+        fully_prescribed_boundaries.insert(bc.id);
         fun_ptr = homogeneous ? &zero_fun : &exact_solution;
         VectorTools::interpolate_boundary_values(
           mapping, dof_handler, bc.id, *fun_ptr, constraints, position_mask);
@@ -757,6 +823,18 @@ namespace BoundaryConditions
         mms_position_flux_functions[bc.id] = &mms_position;
       // FIXME: Error if BC not handled?
     }
+
+    if (position_flux_functions.empty() && mms_position_flux_functions.empty())
+      return;
+
+    // Partial Dirichlet values must participate in the same elimination as
+    // flux equations, so a flux pivot already prescribed can be replaced by
+    // a remaining free component. Incoming constraints and fully prescribed
+    // boundaries retain the precedence of the original left_object_wins merge.
+    if (has_partial_position && !fully_prescribed_boundaries.empty())
+      priority_dofs.add_indices(DoFTools::extract_boundary_dofs(
+        dof_handler, position_mask, fully_prescribed_boundaries));
+    priority_dofs.compress();
 
     AffineConstraints<double> flux_constraints, boundary_constraints;
     flux_constraints.reinit(constraints.get_locally_owned_indices(),
@@ -775,7 +853,7 @@ namespace BoundaryConditions
             dof_handler,
             x_lower,
             {boundary_id},
-            {{boundary_id, function}},
+            {{boundary_id, homogeneous ? &zero_position : function}},
             boundary_constraints,
             mapping,
             /*use_manifold_for_normal=*/false);
@@ -786,9 +864,11 @@ namespace BoundaryConditions
           const double prescribed_value_scale =
             Utilities::MPI::max(local_scale,
                                 dof_handler.get_mpi_communicator());
-          add_independent_flux_constraints(boundary_constraints,
-                                           flux_constraints,
-                                           prescribed_value_scale);
+          add_independent_flux_constraints(
+            boundary_constraints,
+            has_partial_position ? constraints : flux_constraints,
+            prescribed_value_scale,
+            has_partial_position ? &priority_dofs : nullptr);
         }
       };
 

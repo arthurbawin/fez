@@ -1,0 +1,11 @@
+
+DEAL::2d input_function masks and values OK
+DEAL::2d fixed masks and values OK
+DEAL::2d position_mms masks and values OK
+DEAL::2d parameter validation OK
+DEAL::2d combined partial position and flux constraints OK
+DEAL::3d input_function masks and values OK
+DEAL::3d fixed masks and values OK
+DEAL::3d position_mms masks and values OK
+DEAL::3d parameter validation OK
+DEAL::3d combined partial position and flux constraints OK

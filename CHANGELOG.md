@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-16
+
+### Added
+Allow pseudosolid `input_function` boundary conditions to constrain selected position components with `constrain_x`, `constrain_y` and `constrain_z`. All components remain constrained by default; `constrain_z` is ignored in 2D. The component flags are ignored by other boundary condition types.
+
+### Fixed
+Combine partial prescribed mesh positions with normal-flux constraints at boundary intersections, including when both initially select the same constrained component. Preserve the priority of fully prescribed boundaries and reject incompatible partial conditions. Homogeneous mesh-position flux constraints now impose zero normal increments, including on translated boundaries.
+
 ## [0.0.0] 2026-11-13
 
 ### Added

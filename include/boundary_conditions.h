@@ -174,6 +174,13 @@ namespace BoundaryConditions
   class PseudosolidBC : public BoundaryCondition
   {
   public:
+    /// Select the position components constrained by input_function.
+    /// At least one component must be selected; the others remain free.
+    /// Other boundary types ignore these flags; constrain_z is ignored in 2D.
+    bool constrain_x = true;
+    bool constrain_y = true;
+    bool constrain_z = true;
+
     /// Prescribed mesh position (used only for input_function)
     std::shared_ptr<Functions::ParsedFunction<dim>> x;
     std::shared_ptr<Functions::ParsedFunction<dim>> y;
@@ -302,8 +309,12 @@ namespace BoundaryConditions
 
 
   /**
-   *
-   *
+   * Impose mesh-position values and wall-normal constraints. Partial
+   * input_function values are combined with normal-flux equations, choosing
+   * free components as needed and rejecting incompatible conditions. Incoming
+   * constraints and fully prescribed boundaries retain priority. Homogeneous
+   * constraints impose zero position increments, including in the normal
+   * direction on translated walls.
    */
   template <int dim>
   void apply_mesh_position_boundary_conditions(

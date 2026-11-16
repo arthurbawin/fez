@@ -21,8 +21,10 @@ and each trial with alpha < 1 was compared against the previous trial residual.
 
 ### Changed
 Newton line search : 
+- There is now a dedicated parameter subsection for the Line search, the .prm files have been modified accordingly.
 - Armijo condition now accepts reduction starting from 1 - 1e-4 * alpha, instead of the very stringent 0.1.
-- The parameter alpha can go down to 1/1024, which is 11 trials total instead of 4.
+- The residual is allowed to increase, and is compared to the maximum accepted residual within the last N residuals in memory. Setting a memory of N = 1 residual falls back to the default Armijo criterion, and allows only residual reduction.
+- The hardcoded number of backtracking step is now a user parameter, whose default is 4.
 - An accepted step with alpha = 1 no longer prints a "Line search with alpha = 1." status, which is redundant noise with the Newton iteration summary. [#111](https://github.com/arthurbawin/fez/pull/111)
 
 ## [0.0.0] 2026-11-09

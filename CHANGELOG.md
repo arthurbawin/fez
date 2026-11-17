@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-16
+
+### Changed
+Renamed the standalone `linear_elasticity` solver to `elasticity`, including its classes, examples, tests and VTU output suffix. Rename the `Linear elasticity` parameter subsection to `Elasticity`, and `Linear solver/linear elasticity` to `Linear solver/elasticity` in existing parameter files. The `linear elasticity` constitutive model and the numerical algorithms are unchanged.
+
 ## [0.0.0] 2026-11-13
 
 ### Added

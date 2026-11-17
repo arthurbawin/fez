@@ -14,7 +14,7 @@
 using namespace dealii;
 
 /**
- * Small scratch data for the linear elasticity equation on fixed mesh.
+ * Small scratch data for the elasticity equation on fixed mesh.
  */
 template <int dim>
 class ScratchDataElasticity
@@ -245,7 +245,7 @@ public:
   /**
    * Evaluation of the given source term on the current mesh, that is, of
    * f(x(X)). This is useful when one has access to the source term on the
-   * current configuration only, whereas the linear elasticity equation is
+   * current configuration only, whereas the elasticity equation is
    * solved on the reference configuration.
    */
   std::vector<Point<dim>>                  qpoints_current_mesh;

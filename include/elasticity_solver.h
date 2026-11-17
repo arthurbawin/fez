@@ -25,16 +25,23 @@
 using namespace dealii;
 
 /**
- * Solve the linear elasticity equation written for the mesh position :
+ * Solve the elasticity equation written for the mesh position x(X) on the
+ * reference configuration :
  *
- * - \nabla \cdot \sigma(x) + f = 0,
+ * - \nabla_X \cdot P(F) + f = 0,   with F = \nabla_X x and J = det(F),
  *
- * with \sigma(x) = 2\mu\epsilon(x) + \lambda\tr{\epsilon(x)} I.
- * The infinitesimal strain tensor \epsilon(x) is written in terms of the mesh
- * position, and not in terms of displacement u, and thus writes:
+ * where P is the first Piola-Kirchhoff stress tensor given by the constitutive
+ * model chosen in the "Physical properties/Pseudosolid 0" subsection :
  *
- * \epsilon(x) = (\nabla(u) + \nabla(u)^T)/2
- *             = (\nabla(x) + \nabla(x)^T)/2 - I
+ * - linear elasticity : P(F) = 2\mu\epsilon + \lambda\tr{\epsilon} I. The
+ *   infinitesimal strain tensor \epsilon is written in terms of the mesh
+ *   position, and not in terms of displacement u, and thus writes:
+ *
+ *   \epsilon = (\nabla_X(u) + \nabla_X(u)^T)/2
+ *            = (F + F^T)/2 - I
+ *
+ * - neo-Hookean : P(F) = \mu(F - F^{-T}) + \lambda \ln(J) F^{-T},
+ * - Ogden : P(F) = \mu(F - F^{-T}) + \lambda (1 - J^{-\beta})/\beta F^{-T}.
  *
  * The source term f can either be evaluated on the reference configuration X,
  * or on the current configuration x(X), yielding a nonlinear problem.
@@ -43,14 +50,14 @@ using namespace dealii;
  * continuation method is used, to progressively account for the source term,
  * and we actually solve :
  *
- * - \nabla \cdot \sigma(x) + alpha * f(x(X)) = 0.
+ * - \nabla_X \cdot P(F) + alpha * f(x(X)) = 0.
  *
  * This feature is controlled by the "Elasticity" subsection of the
  * parameter file. The continuation parameter alpha lies in the provided
  * [min_coeff, max_coeff] bracket, so that the last solved position field
  * satisfies :
  *
- * - \nabla \cdot \sigma(x) + max_coeff * f(x(X)) = 0.
+ * - \nabla_X \cdot P(F) + max_coeff * f(x(X)) = 0.
  *
  */
 template <int dim>
@@ -215,7 +222,8 @@ protected:
     {}
 
     /**
-     * Evaluate source term for the linear elasticity equation.
+     * Evaluate the manufactured source term f = \nabla_X \cdot P(F_exact), with
+     * F_exact = \nabla_X x_exact, for the chosen constitutive model.
      */
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;

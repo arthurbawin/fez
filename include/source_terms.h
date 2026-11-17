@@ -54,7 +54,7 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>> pseudosolid_source;
 
     /**
-     * Source term for the linear elasticity equation, when solved alone
+     * Source term for the elasticity equation, when solved alone
      * in the dedicated solver. This source term can be used, e.g., to adapt
      * the mesh to an initial source term, before continuing with another
      * solver, which may or may not have a user-defined pseudosolid_source term

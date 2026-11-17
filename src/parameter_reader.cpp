@@ -113,7 +113,7 @@ void ParameterReader<dim>::check_parameters() const
       "The parameter file specifies that the elasticity solver should "
       "evaluate the given source term on the current mesh (not the reference "
       "mesh), but a convergence study with a manufactured solution should also "
-      "be run. This is not compatible, as the source term for the linear "
+      "be run. This is not compatible, as the source term for the "
       "elasticity equation and based on the manufactured solution is expected "
       "to be evaluated on the reference mesh."));
 

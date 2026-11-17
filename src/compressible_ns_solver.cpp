@@ -655,10 +655,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                      2.0 / 3.0 * mu * div_phi_u_face[j] * n * phi_u_face[i]);
                 }
 
-                // The prescribed boundary pressure is independent of the
-                // pressure unknown, so this boundary term has no u-p Jacobian
-                // contribution.
-
                 if (assemble)
                 {
                   local_matrix_ij *= face_JxW;

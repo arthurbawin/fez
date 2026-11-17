@@ -62,10 +62,13 @@ subsection Nonlinear solver
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
   set max_iterations       = 20
-  set enable_line_search   = false
 
   # FIXME: This option is unused
   #set analytic_jacobian    = true
+
+  subsection Line search
+    set enable = false
+  end
 end
 
 #

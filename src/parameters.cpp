@@ -1150,6 +1150,7 @@ namespace Parameters
   {
     prm.enter_subsection("Nonlinear solver");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.declare_entry("tolerance",
                         "1e-10",
                         Patterns::Double(),
@@ -1162,15 +1163,31 @@ namespace Parameters
                         "1",
                         Patterns::Integer(),
                         "Maximum number of Newton iterations");
-      prm.declare_entry("enable_line_search",
-                        "true",
-                        Patterns::Bool(),
-                        "Enable line search");
       prm.declare_entry(
         "analytic_jacobian",
         "true",
         Patterns::Bool(),
         "Compute exact Jacobian matrix. If false, use finite differences.");
+      prm.enter_subsection("Line search");
+      {
+        prm.declare_entry("enable",
+                          "true",
+                          Patterns::Bool(),
+                          "Enable line search");
+        prm.declare_entry(
+          "max backtrack steps",
+          "4",
+          Patterns::Integer(1),
+          "Maximum number of trials when backtracking, including alpha = 1. "
+          "Each rejection halves alpha.");
+        prm.declare_entry("memory",
+                          "3",
+                          Patterns::Integer(1),
+                          "Number of recent accepted residuals in the line "
+                          "search reference. 1 enforces monotone decrease. "
+                          "History resets at each nonlinear solve.");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("reassembly heuristic");
       {
         prm.declare_entry(
@@ -1181,7 +1198,6 @@ namespace Parameters
           "the previous residual norm, reassemble the matrix.");
       }
       prm.leave_subsection();
-      DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.declare_entry("compare jacobian matrix with finite differences",
                         "false",
                         Patterns::Bool(),
@@ -1210,17 +1226,24 @@ namespace Parameters
   {
     prm.enter_subsection("Nonlinear solver");
     {
+      READ_VERBOSITY_PARAM(prm, verbosity)
       tolerance            = prm.get_double("tolerance");
       divergence_tolerance = prm.get_double("divergence_tolerance");
       max_iterations       = prm.get_integer("max_iterations");
-      enable_line_search   = prm.get_bool("enable_line_search");
       analytic_jacobian    = prm.get_bool("analytic_jacobian");
+      prm.enter_subsection("Line search");
+      {
+        line_search.enable = prm.get_bool("enable");
+        line_search.max_backtrack_steps =
+          prm.get_integer("max backtrack steps");
+        line_search.memory = prm.get_integer("memory");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("reassembly heuristic");
       {
         reassembly_decrease_tol = prm.get_double("decrease tolerance");
       }
       prm.leave_subsection();
-      READ_VERBOSITY_PARAM(prm, verbosity)
       compare_jacobian_with_finite_differences =
         prm.get_bool("compare jacobian matrix with finite differences");
       analytical_jacobian_absolute_tolerance =

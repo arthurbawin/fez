@@ -69,7 +69,6 @@ void test_restart()
   prm.set("tolerance", "1e-8");
   prm.set("divergence_tolerance", "1e+4");
   prm.set("max_iterations", "50");
-  prm.set("enable_line_search", "true");
   prm.set("analytic_jacobian", "true");
   prm.leave_subsection();
 

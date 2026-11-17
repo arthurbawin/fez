@@ -1,0 +1,6 @@
+
+DEAL::elasticity dim=2 degree=1 OK
+DEAL::CHNS-ALE dim=2 degree=1 OK
+DEAL::neo-Hookean compression: alpha=1 rejected, alpha=0.5 accepted, converged
+DEAL::monolithic FSI dim=3 degree=1 OK
+DEAL::hp FSI dim=2 degree=2 OK

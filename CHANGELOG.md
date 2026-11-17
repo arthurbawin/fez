@@ -12,6 +12,9 @@ Allow pseudosolid `input_function` boundary conditions to constrain selected pos
 ### Fixed
 Combine partial prescribed mesh positions with normal-flux constraints at boundary intersections, including when both initially select the same constrained component. Preserve the priority of fully prescribed boundaries and reject incompatible partial conditions. Homogeneous mesh-position flux constraints now impose zero normal increments, including on translated boundaries.
 
+### Changed
+Renamed the standalone `linear_elasticity` solver to `elasticity`, including its classes, examples, tests and VTU output suffix. Rename the `Linear elasticity` parameter subsection to `Elasticity`, and `Linear solver/linear elasticity` to `Linear solver/elasticity` in existing parameter files. The `linear elasticity` constitutive model and the numerical algorithms are unchanged.
+
 ## [0.0.0] 2026-11-13
 
 ### Added

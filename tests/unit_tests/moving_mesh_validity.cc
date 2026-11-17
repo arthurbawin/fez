@@ -1,7 +1,7 @@
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <elasticity_solver.h>
 #include <fsi_solver.h>
 #include <incompressible_chns_solver.h>
-#include <linear_elasticity_solver.h>
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
 
@@ -133,7 +133,7 @@ void check_solver(const ParameterReader<dim> &param,
   }
   // An inverted mesh can still have a finite residual for linear elasticity,
   // so the residual alone cannot detect the inversion.
-  if constexpr (std::is_same_v<Solver, LinearElasticitySolver<dim>>)
+  if constexpr (std::is_same_v<Solver, ElasticitySolver<dim>>)
   {
     solver.set_position(-1.);
     solver.setup_assemblers();
@@ -173,13 +173,13 @@ void check_solver(const ParameterReader<dim> &param,
  * - an invalid evaluation point never reaches RHS assembly,
  * - the assembled residual is always finite.
  */
-class CompressionProblem : public LinearElasticitySolver<2>
+class CompressionProblem : public ElasticitySolver<2>
 {
 public:
-  using LinearElasticitySolver<2>::LinearElasticitySolver;
+  using ElasticitySolver<2>::ElasticitySolver;
   bool evaluation_point_is_valid() const override
   {
-    const bool valid = LinearElasticitySolver<2>::evaluation_point_is_valid();
+    const bool valid = ElasticitySolver<2>::evaluation_point_is_valid();
     ++checks;
     if (checks == 2 || checks == 3)
     {
@@ -197,9 +197,9 @@ public:
   }
   void assemble_rhs() override
   {
-    AssertThrow(LinearElasticitySolver<2>::evaluation_point_is_valid(),
+    AssertThrow(ElasticitySolver<2>::evaluation_point_is_valid(),
                 ExcMessage("An invalid trial reached RHS assembly"));
-    LinearElasticitySolver<2>::assemble_rhs();
+    ElasticitySolver<2>::assemble_rhs();
     AssertThrow(std::isfinite(system_rhs.l2_norm()),
                 ExcMessage(
                   "The safeguarded physical residual must stay finite"));
@@ -234,7 +234,7 @@ subsection Nonlinear solver
   set max_iterations = 20
 end
 subsection Linear solver
-  subsection linear elasticity
+  subsection elasticity
     set method = direct_mumps
     set reuse = false
   end
@@ -250,7 +250,7 @@ subsection Physical properties
     end
   end
 end
-subsection Linear elasticity
+subsection Elasticity
   subsection source term
     set Function expression = 5; 0
   end
@@ -335,9 +335,7 @@ void check_geometry(const unsigned int degree)
   {
     if (degree == 1)
     {
-      check_solver<dim, LinearElasticitySolver<dim>>(param,
-                                                     "elasticity",
-                                                     degree);
+      check_solver<dim, ElasticitySolver<dim>>(param, "elasticity", degree);
       check_solver<dim, CHNSSolver<dim, true>>(param, "CHNS-ALE", degree);
       check_compression(prm, param);
     }

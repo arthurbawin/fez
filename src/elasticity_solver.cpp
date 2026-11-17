@@ -11,8 +11,8 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <elasticity_solver.h>
 #include <errors.h>
-#include <linear_elasticity_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <post_processing_tools.h>
@@ -20,15 +20,14 @@
 #include <utilities.h>
 
 template <int dim>
-LinearElasticitySolver<dim>::LinearElasticitySolver(
-  const ParameterReader<dim> &param)
+ElasticitySolver<dim>::ElasticitySolver(const ParameterReader<dim> &param)
   : GenericSolver<LA::ParVectorType>(param.output,
                                      param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverInfo::SolverType::linear_elasticity)
+                                     SolverInfo::SolverType::elasticity)
   , ordering(ComponentOrderingElasticity<dim>())
   , param(param)
   , triangulation(mpi_communicator)
@@ -68,12 +67,12 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
     exact_solution = param.mms.exact_mesh_position;
 
     // Create source term function for the given MMS and override source terms
-    source_terms = std::make_shared<LinearElasticitySolver<dim>::MMSSourceTerm>(
+    source_terms = std::make_shared<ElasticitySolver<dim>::MMSSourceTerm>(
       param.physical_properties, param.mms);
   }
   else
   {
-    source_terms   = param.source_terms.linear_elasticity_source;
+    source_terms   = param.source_terms.elasticity_source;
     exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(dim);
   }
 
@@ -87,7 +86,7 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
+void ElasticitySolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
@@ -99,7 +98,7 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::reset()
+void ElasticitySolver<dim>::reset()
 {
   param.mms_param.current_step = mms_param.current_step;
   param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
@@ -119,7 +118,7 @@ void LinearElasticitySolver<dim>::reset()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::run()
+void ElasticitySolver<dim>::run()
 {
   reset();
   setup_assemblers();
@@ -133,17 +132,17 @@ void LinearElasticitySolver<dim>::run()
 
   update_boundary_conditions();
 
-  if (param.linear_elasticity.enable_source_term_on_current_mesh)
+  if (param.elasticity.enable_source_term_on_current_mesh)
   {
     /**
      * Continuation method to handle possibly steep source terms evaluated
      * on the current (deformed) mesh.
      */
     const double c_min =
-      param.linear_elasticity.min_current_mesh_source_term_multiplier;
+      param.elasticity.min_current_mesh_source_term_multiplier;
     const double c_max =
-      param.linear_elasticity.max_current_mesh_source_term_multiplier;
-    const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
+      param.elasticity.max_current_mesh_source_term_multiplier;
+    const unsigned int n_steps = param.elasticity.n_continuation_steps;
 
     scratch_data->source_term_moving_mesh_multiplier = c_min;
     scratch_data->source_term_fixed_mesh_multiplier  = 0.;
@@ -184,7 +183,7 @@ void LinearElasticitySolver<dim>::run()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::setup_assemblers()
+void ElasticitySolver<dim>::setup_assemblers()
 {
   assemblers.clear();
   Assembly::Elasticity::setup_assemblers<dim, ScratchData, CopyData>(
@@ -192,7 +191,7 @@ void LinearElasticitySolver<dim>::setup_assemblers()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::setup_dofs()
+void ElasticitySolver<dim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup");
 
@@ -217,7 +216,7 @@ void LinearElasticitySolver<dim>::setup_dofs()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::create_base_constraints(
+void ElasticitySolver<dim>::create_base_constraints(
   const bool                 homogeneous,
   AffineConstraints<double> &constraints)
 {
@@ -239,19 +238,19 @@ void LinearElasticitySolver<dim>::create_base_constraints(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::create_zero_constraints()
+void ElasticitySolver<dim>::create_zero_constraints()
 {
   create_base_constraints(true, zero_constraints);
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::create_nonzero_constraints()
+void ElasticitySolver<dim>::create_nonzero_constraints()
 {
   create_base_constraints(false, nonzero_constraints);
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::create_sparsity_pattern()
+void ElasticitySolver<dim>::create_sparsity_pattern()
 {
   DynamicSparsityPattern dsp(locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(dof_handler,
@@ -269,7 +268,7 @@ void LinearElasticitySolver<dim>::create_sparsity_pattern()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::set_initial_conditions()
+void ElasticitySolver<dim>::set_initial_conditions()
 {
   FixedMeshPosition<dim> fixed_mesh(0, dim);
   VectorTools::interpolate(
@@ -283,7 +282,7 @@ void LinearElasticitySolver<dim>::set_initial_conditions()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::set_exact_solution()
+void ElasticitySolver<dim>::set_exact_solution()
 {
   VectorTools::interpolate(*mapping,
                            dof_handler,
@@ -295,7 +294,7 @@ void LinearElasticitySolver<dim>::set_exact_solution()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::update_boundary_conditions()
+void ElasticitySolver<dim>::update_boundary_conditions()
 {
   local_evaluation_point = present_solution;
   create_nonzero_constraints();
@@ -305,7 +304,7 @@ void LinearElasticitySolver<dim>::update_boundary_conditions()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::assemble_matrix()
+void ElasticitySolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
@@ -322,7 +321,7 @@ void LinearElasticitySolver<dim>::assemble_matrix()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::assemble_local_matrix(
+void ElasticitySolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -345,7 +344,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::copy_local_to_global_matrix(
+void ElasticitySolver<dim>::copy_local_to_global_matrix(
   const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
@@ -356,7 +355,7 @@ void LinearElasticitySolver<dim>::copy_local_to_global_matrix(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
+void ElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
@@ -367,14 +366,14 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 }
 
 template <int dim>
-bool LinearElasticitySolver<dim>::evaluation_point_is_valid() const
+bool ElasticitySolver<dim>::evaluation_point_is_valid() const
 {
   return position_field_is_valid(
     *mapping, dof_handler, *quadrature, position_extractor, evaluation_point);
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::assemble_rhs()
+void ElasticitySolver<dim>::assemble_rhs()
 {
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
@@ -386,8 +385,8 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   WorkStream::run(dof_handler.begin_active(),
                   dof_handler.end(),
                   *this,
-                  &LinearElasticitySolver::assemble_local_rhs,
-                  &LinearElasticitySolver::copy_local_to_global_rhs,
+                  &ElasticitySolver::assemble_local_rhs,
+                  &ElasticitySolver::copy_local_to_global_rhs,
                   *scratch_data,
                   copy_data);
 
@@ -395,7 +394,7 @@ void LinearElasticitySolver<dim>::assemble_rhs()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::assemble_local_rhs(
+void ElasticitySolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -418,8 +417,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::copy_local_to_global_rhs(
-  const CopyData &copy_data)
+void ElasticitySolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -429,7 +427,7 @@ void LinearElasticitySolver<dim>::copy_local_to_global_rhs(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::solve_linear_system()
+void ElasticitySolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 
@@ -461,13 +459,13 @@ void LinearElasticitySolver<dim>::solve_linear_system()
       AssertThrow(false,
                   ExcMessage(
                     "The chosen linear solver is not implemented for the "
-                    "LinearElasticitySolver. The "
+                    "ElasticitySolver. The "
                     "only solvers currently available are Mumps and CG."));
   }
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::output_results()
+void ElasticitySolver<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
@@ -494,7 +492,7 @@ void LinearElasticitySolver<dim>::output_results()
     data_out.build_patches(*mapping, 2);
     data_out.write_vtu_with_pvtu_record(param.output.output_dir,
                                         param.output.output_prefix +
-                                          "linear_elasticity",
+                                          "elasticity",
                                         0,
                                         mpi_communicator,
                                         2);
@@ -502,7 +500,7 @@ void LinearElasticitySolver<dim>::output_results()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::move_mesh()
+void ElasticitySolver<dim>::move_mesh()
 {
   std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
   for (auto &cell : dof_handler.active_cell_iterators())
@@ -518,7 +516,7 @@ void LinearElasticitySolver<dim>::move_mesh()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::compute_errors()
+void ElasticitySolver<dim>::compute_errors()
 {
   TimerOutput::Scope t(computing_timer, "Compute errors");
 
@@ -545,7 +543,7 @@ void LinearElasticitySolver<dim>::compute_errors()
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::postprocess_solution()
+void ElasticitySolver<dim>::postprocess_solution()
 {
   // Compute error *before* moving mesh for visualization (-:
   if (param.mms_param.enable)
@@ -556,5 +554,5 @@ void LinearElasticitySolver<dim>::postprocess_solution()
 }
 
 // Explicit instantiation
-template class LinearElasticitySolver<2>;
-template class LinearElasticitySolver<3>;
+template class ElasticitySolver<2>;
+template class ElasticitySolver<3>;

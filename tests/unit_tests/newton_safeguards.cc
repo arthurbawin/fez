@@ -39,7 +39,7 @@ public:
                     Parameters::Mesh{},
                     time,
                     Parameters::MMS{},
-                    SolverInfo::SolverType::linear_elasticity)
+                    SolverInfo::SolverType::elasticity)
     , residual(std::move(residual))
   {
     IndexSet owned(mpi_size);

@@ -1,0 +1,12 @@
+
+DEAL::memory parameter OK
+DEAL::memory 1 rejects increase damped steady OK
+DEAL::memory 3 permits bounded increase damped steady OK
+DEAL::expired maximum damped steady OK
+DEAL::fixed reference damped steady OK
+DEAL::four trials stop before tiny step damped steady OK
+DEAL::eleven trials reach tiny step damped steady OK
+DEAL::nonfinite last valid iterate undamped steady OK
+DEAL::nonfinite last valid iterate undamped adaptive OK
+DEAL::nonfinite last valid iterate damped steady OK
+DEAL::nonfinite last valid iterate damped adaptive OK

@@ -75,7 +75,9 @@ void test_restart()
   prm.set("tolerance", "1e-10");
   prm.set("divergence_tolerance", "1e+4");
   prm.set("max_iterations", "20");
-  prm.set("enable_line_search", "false");
+  prm.enter_subsection("Line search");
+  prm.set("enable", "false");
+  prm.leave_subsection();
   prm.enter_subsection("reassembly heuristic");
   prm.set("decrease tolerance", "0");
   prm.leave_subsection();

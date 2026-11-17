@@ -181,6 +181,13 @@ public:
   virtual void setup_assemblers() = 0;
 
   /**
+   * Check whether the evaluation_point yields a well-defined residual. For
+   * solvers with a moving mesh, this checks if the position variable stored in
+   * evaluation_point yields a valid mesh at a given set of quadrature points.
+   */
+  bool evaluation_point_is_valid() const override;
+
+  /**
    * For solvers with hp capabilities, set the active fe index on each owned
    * mesh element.
    *

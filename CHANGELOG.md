@@ -17,6 +17,24 @@ Combine partial prescribed mesh positions with normal-flux constraints at bounda
 ### Added
 Added indentation tools for the parameters files (in tests/ and examples/), and updated pull request template accordingly. Indented all .prm files. [#116](https://github.com/arthurbawin/fez/pull/116)
 
+## [0.0.0] 2026-11-10
+
+### Fixed
+Some bugs in the Newton line search [#111](https://github.com/arthurbawin/fez/pull/111):
+- The full Newton step was compared against the residual of the previous iteration,
+and each trial with alpha < 1 was compared against the previous trial residual.
+- When no step was acceptable, backtracking would accept a rejected larger step, possibly with increased residual. Now the search fails if no alpha was able to reduce the residual.
+- The last Newton iteration would not be printed as the ones before when line search was enabled.
+- Nonfinite (e.g., with NaNs from an inverted mesh) residuals are rejected. Without line search, the solver fails when it encounters a nonfinite residual. In the line search, the residual is rejected, then we try again with a smaller alpha, to accept a smaller mesh deformation yielding a valid mesh.
+
+### Changed
+Newton line search : 
+- There is now a dedicated parameter subsection for the Line search, the .prm files have been modified accordingly.
+- Armijo condition now accepts reduction starting from 1 - 1e-4 * alpha, instead of the very stringent 0.1.
+- The residual is allowed to increase, and is compared to the maximum accepted residual within the last N residuals in memory. Setting a memory of N = 1 residual falls back to the default Armijo criterion, and allows only residual reduction.
+- The hardcoded number of backtracking step is now a user parameter, whose default is 4.
+- An accepted step with alpha = 1 no longer prints a "Line search with alpha = 1." status, which is redundant noise with the Newton iteration summary. [#111](https://github.com/arthurbawin/fez/pull/111)
+
 ## [0.0.0] 2026-11-09
 
 ### Fixed

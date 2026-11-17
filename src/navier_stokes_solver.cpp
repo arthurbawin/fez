@@ -542,6 +542,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
 }
 
 template <int dim, bool with_moving_mesh>
+bool NavierStokesSolver<dim, with_moving_mesh>::evaluation_point_is_valid()
+  const
+{
+  if constexpr (with_moving_mesh)
+    return mesh_is_valid(*moving_mapping, *triangulation, *quadrature);
+  return true;
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::reinit_ghosted_vectors()
 {
   present_solution->reinit(locally_owned_dofs,

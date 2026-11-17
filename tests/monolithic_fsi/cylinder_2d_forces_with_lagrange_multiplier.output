@@ -44,11 +44,9 @@ Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
 Time step 2 - Advancing to t = +2.00000000e-01.
 Newton iter.  0:          nonlinear residual = +3.69859724e-01
-	Line search with alpha = +1.000 : res = +9.85012146e-04
 Newton iter.  1:          nonlinear residual = +9.85012146e-04	(M)
-	Line search with alpha = +1.000 : res = +1.52170288e-07
 Newton iter.  2:          nonlinear residual = +1.52170288e-07	(M)
-	Line search with alpha = +1.000 : res = +1.91524269e-13
+Newton iter.  3:          nonlinear residual = +1.91524269e-13	(M)
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
@@ -71,11 +69,9 @@ Checking no-slip enforcement on cylinder:
 
 Time step 3 - Advancing to t = +3.00000000e-01.
 Newton iter.  0:          nonlinear residual = +4.90933918e-01
-	Line search with alpha = +1.000 : res = +3.21396492e-03
 Newton iter.  1:          nonlinear residual = +3.21396492e-03	(M)
-	Line search with alpha = +1.000 : res = +1.56301188e-06
 Newton iter.  2:          nonlinear residual = +1.56301188e-06	(M)
-	Line search with alpha = +1.000 : res = +1.02345436e-12
+Newton iter.  3:          nonlinear residual = +1.02345436e-12	(M)
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier

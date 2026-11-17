@@ -367,6 +367,13 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 }
 
 template <int dim>
+bool LinearElasticitySolver<dim>::evaluation_point_is_valid() const
+{
+  return position_field_is_valid(
+    *mapping, dof_handler, *quadrature, position_extractor, evaluation_point);
+}
+
+template <int dim>
 void LinearElasticitySolver<dim>::assemble_rhs()
 {
   TimerOutput::Scope t(computing_timer, "Assemble RHS");

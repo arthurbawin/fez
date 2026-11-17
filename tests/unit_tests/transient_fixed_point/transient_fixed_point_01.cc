@@ -39,7 +39,9 @@ void test()
   // Nonlinear solver
   prm.enter_subsection("Nonlinear solver");
   prm.set("verbosity", "verbose");
-  prm.set("enable_line_search", "false");
+  prm.enter_subsection("Line search");
+  prm.set("enable", "false");
+  prm.leave_subsection();
   prm.leave_subsection();
 
   // Linear solver

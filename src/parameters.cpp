@@ -375,7 +375,8 @@ namespace Parameters
       prm.declare_entry("output prefix",
                         "solution",
                         Patterns::FileName(),
-                        "Prefix for the output files.");
+                        "Prefix for the output files, including postprocessing "
+                        "text files.");
       prm.declare_entry(
         "vtu output frequency",
         "1",
@@ -486,7 +487,8 @@ namespace Parameters
     prm.declare_entry("output prefix",
                       "postprocessed_data",
                       Patterns::FileName(),
-                      "Prefix for the postprocessing output files");
+                      "Prefix for the postprocessing output files, appended "
+                      "after Output/output prefix and an underscore");
     prm.declare_entry("precision",
                       "6",
                       Patterns::Integer(1),
@@ -541,8 +543,8 @@ namespace Parameters
           Patterns::List(Patterns::Selection(
             std::string(SolverInfo::variable_names_for_param))),
           "Comma-separated list of finite element variables to integrate over "
-          "the domain. Each variable is written to <output "
-          "prefix>_<variable>.txt");
+          "the domain. Each variable is written to <Output/output "
+          "prefix>_<field integral/output prefix>_<variable>.txt");
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");

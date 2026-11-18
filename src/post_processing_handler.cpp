@@ -305,6 +305,14 @@ template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const Parameters::PostProcessing::PostProcessingFile &);
 
 template <int dim>
+std::string PostProcessingHandler<dim>::postprocessing_filename(
+  const std::string &prefix) const
+{
+  return output_param.output_dir + output_param.output_prefix + "_" + prefix +
+         ".txt";
+}
+
+template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,

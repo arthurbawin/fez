@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-17
+
+### Changed
+Postprocessing text filenames now start with `Output/output prefix` followed by an underscore, so simulations with different prefixes can share an output directory. This affects forces, sliced forces, structure positions, field integrals and CHNS phase indicators. For example, `forces.txt` becomes `solution_forces.txt` with the default simulation prefix; update scripts that read these files accordingly. Existing postprocessing prefixes and suffixes are retained.
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

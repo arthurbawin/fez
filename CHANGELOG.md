@@ -6,6 +6,12 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 
 ## [0.0.0] 2026-11-16
 
+### Added
+Allow pseudosolid `input_function` boundary conditions to constrain selected position components with `constrain_x`, `constrain_y` and `constrain_z`. All components remain constrained by default; `constrain_z` is ignored in 2D. The component flags are ignored by other boundary condition types.
+
+### Fixed
+Combine partial prescribed mesh positions with normal-flux constraints at boundary intersections, including when both initially select the same constrained component. Preserve the priority of fully prescribed boundaries and reject incompatible partial conditions. Homogeneous mesh-position flux constraints now impose zero normal increments, including on translated boundaries.
+
 ### Changed
 Renamed the standalone `linear_elasticity` solver to `elasticity`, including its classes, examples, tests and VTU output suffix. Rename the `Linear elasticity` parameter subsection to `Elasticity`, and `Linear solver/linear elasticity` to `Linear solver/elasticity` in existing parameter files. The `linear elasticity` constitutive model and the numerical algorithms are unchanged. [#125](https://github.com/arthurbawin/fez/pull/125)
 

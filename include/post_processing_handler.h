@@ -194,6 +194,14 @@ public:
   void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
 
   /**
+   * Restore deal.II volume and skin PVD history through the checkpoint time.
+   * Missing files are allowed for runs that did not previously export results.
+   */
+  void
+  restore_pvd_entries_until_time(double            max_time,
+                                 const PrefixData &prefix_data = PrefixData());
+
+  /**
    * Calls the postprocess() function for each of the dof-based postprocessor
    * stored in field_postprocessors, and adds the computed data to the
    * underlying DataOut.
@@ -504,6 +512,10 @@ private:
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation;
 
+  void remove_visualization_record(
+    std::vector<std::pair<double, std::string>> &records,
+    const std::string                           &filename) const;
+
   // The times and names of the pvtu files in the pvd file
   std::vector<std::pair<double, std::string>> visualization_times_and_names;
   std::vector<std::pair<double, std::string>>
@@ -708,11 +720,12 @@ void PostProcessingHandler<dim>::output_volume_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    visualization_times_and_names.emplace_back(
+    const double output_time =
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time,
-      pvtu_file);
+        current_time;
+    remove_visualization_record(visualization_times_and_names, pvtu_file);
+    visualization_times_and_names.emplace_back(output_time, pvtu_file);
   }
 
   data_out->clear_data_vectors();
@@ -793,11 +806,12 @@ void PostProcessingHandler<dim>::output_skin_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    visualization_times_and_names_skin.emplace_back(
+    const double output_time =
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time,
-      pvtu_file);
+        current_time;
+    remove_visualization_record(visualization_times_and_names_skin, pvtu_file);
+    visualization_times_and_names_skin.emplace_back(output_time, pvtu_file);
   }
 
   data_out_skin->clear_data_vectors();

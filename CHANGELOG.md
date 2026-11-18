@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-18
+
+### Fixed
+In 2D, the SUPG/PSPG parameter tau of the CHNS momentum equation is now computed with the velocity shape function gradients of the current quadrature point. It previously used those of the last quadrature point of the cell, in both the fixed-mesh and ALE CHNS solvers. 3D is not affected, as tau uses the cell diameter. [#131](https://github.com/arthurbawin/fez/pull/131)
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

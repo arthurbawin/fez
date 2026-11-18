@@ -51,6 +51,9 @@ void BDFErrorEstimator::rotate_additional_solution(
 {
   // This reinits additional_solution the first time this function is called,
   // thanks to the crafty operator= for PETSc vectors (petsc_vector.h).
+  // That size-based initialization does not detect MPI repartitioning.
+  // Rebuild the ownership and ghost layout before copying the values.
+  additional_solution.reinit(solution, true);
   additional_solution = solution;
 }
 

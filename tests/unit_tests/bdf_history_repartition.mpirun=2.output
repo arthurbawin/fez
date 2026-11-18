@@ -1,0 +1,3 @@
+
+DEAL::cfl: history survives same-size MPI repartition
+DEAL::bdf truncation error: history survives same-size MPI repartition

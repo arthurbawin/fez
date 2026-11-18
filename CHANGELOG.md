@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-17
+
+### Fixed
+Reinitialize the additional BDF history vector after MPI repartitioning, even when the global number of DoFs is unchanged. This prevents incompatible local vector sizes after mesh adaptation with CFL or BDF error-based time stepping.
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

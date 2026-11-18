@@ -1093,6 +1093,10 @@ namespace NavierStokesScratch
                  ExcMessage("The density must be strictly positive to compute "
                             "the kinematic viscosity for SUPG stabilization."));
           const double kinematic_viscosity = dynamic_viscosity[q] / density[q];
+          // The Navier-Stokes loop leaves this buffer at the last quadrature
+          // point. Use the gradients at the current point to compute tau.
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+            grad_phi_u_first_component[k] = grad_phi_u[q][k][0];
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,

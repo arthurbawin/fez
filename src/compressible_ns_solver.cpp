@@ -632,7 +632,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
             const auto &div_phi_u_face = scratch_data.div_phi_u_face[i_face][q];
             const auto &sym_grad_phi_u_face =
               scratch_data.sym_grad_phi_u_face[i_face][q];
-            const auto &phi_p_face = scratch_data.phi_p_face[i_face][q];
 
             for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
@@ -643,7 +642,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
               {
                 const unsigned int component_j = scratch_data.components[j];
                 const bool j_is_u = this->ordering->is_velocity(component_j);
-                const bool j_is_p = this->ordering->is_pressure(component_j);
 
                 double local_matrix_ij = 0.0;
                 bool   assemble        = false;
@@ -655,18 +653,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                   local_matrix_ij +=
                     (-mu * 2.0 * sym_grad_phi_u_face[j] * n * phi_u_face[i] +
                      2.0 / 3.0 * mu * div_phi_u_face[j] * n * phi_u_face[i]);
-                }
-
-                // FIXME: The residual on these faces uses the prescribed
-                // pressure_bc, not the pressure unknown, so its derivative
-                // w.r.t. p is zero. This term makes the Jacobian inconsistent
-                // with the residual (the volume -p div(phi_u) term is already
-                // linearized in the u-p block), and should be removed.
-                if (i_is_u && j_is_p)
-                {
-                  assemble = true;
-
-                  local_matrix_ij += phi_p_face[j] * (n * phi_u_face[i]);
                 }
 
                 if (assemble)

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-17
+
+### Fixed
+Preserve volume and skin PVD visualization histories across checkpoint restarts. Discard records after the checkpoint and replace repeated output records without merging the nearby times used to visualize mesh transfers.
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

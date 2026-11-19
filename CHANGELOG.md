@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-19
+
+### Fixed
+When restarting from a checkpoint with a different time step and without time step adaptation, the duration of the last accepted step was overwritten by the new time step. The first variable-step BDF2 step after the restart then used the wrong previous time step, and was not consistent. The history of accepted time steps is now kept.
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

@@ -626,8 +626,7 @@ void TimeHandler::load()
 }
 
 void TimeHandler::update_parameters_after_restart(
-  const Parameters::TimeIntegration &new_parameters,
-  const ConditionalOStream          &pcout)
+  const Parameters::TimeIntegration &new_parameters)
 {
   // 'steady_scheme' was loaded from the checkpoint
   // Save it before overwriting with the new simulation's scheme.
@@ -663,19 +662,6 @@ void TimeHandler::update_parameters_after_restart(
 
     set_bdf_coefficients();
 
-    pcout << std::endl
-          << "--- Restart from stationary checkpoint ---" << std::endl
-          << "  Scheme              : " << (scheme == BDF1 ? "BDF1" : "BDF2")
-          << std::endl
-          << "  t_initial           : " << initial_time << std::endl
-          << "  t_end               : " << final_time << std::endl
-          << "  dt                  : " << initial_dt << std::endl
-          << "  dt (first step)     : " << current_dt << std::endl
-          << "  BDF coefficients    : [";
-    for (unsigned int i = 0; i < bdf_coefficients.size(); ++i)
-      pcout << (i > 0 ? ", " : "") << bdf_coefficients[i];
-    pcout << "]" << std::endl << std::endl;
-
     return;
   }
 
@@ -704,16 +690,4 @@ void TimeHandler::update_parameters_after_restart(
   }
 
   set_bdf_coefficients();
-
-  pcout << std::endl
-        << "--- Restart from unsteady checkpoint ---" << std::endl
-        << "  Scheme              : " << (scheme == BDF1 ? "BDF1" : "BDF2")
-        << std::endl
-        << "  Resumed at t        : " << current_time << std::endl
-        << "  t_end               : " << final_time << std::endl
-        << "  dt                  : " << current_dt << std::endl
-        << "  BDF coefficients    : [";
-  for (unsigned int i = 0; i < bdf_coefficients.size(); ++i)
-    pcout << (i > 0 ? ", " : "") << bdf_coefficients[i];
-  pcout << "]" << std::endl << std::endl;
 }

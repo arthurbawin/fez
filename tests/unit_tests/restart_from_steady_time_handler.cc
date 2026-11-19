@@ -66,10 +66,7 @@ namespace
       archive >> restarted_handler;
     }
 
-    std::ostringstream empty_stream;
-    ConditionalOStream pcout(empty_stream, false);
-    restarted_handler.update_parameters_after_restart(unsteady_parameters,
-                                                      pcout);
+    restarted_handler.update_parameters_after_restart(unsteady_parameters);
 
     return restarted_handler;
   }

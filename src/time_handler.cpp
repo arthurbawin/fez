@@ -679,11 +679,10 @@ void TimeHandler::update_parameters_after_restart(
 
   // If time step adaptation is enabled, keep the predicted time step
   // stored in the checkpointed data. Otherwise, use the new dt.
+  // Keep time_steps unchanged: they are the accepted past steps, and advance()
+  // needs the last one to compute the variable-step BDF2 coefficients.
   if (!with_adaptive_timestep)
-  {
-    current_dt    = new_parameters.dt;
-    time_steps[0] = new_parameters.dt;
-  }
+    current_dt = new_parameters.dt;
 
   set_bdf_coefficients();
 }

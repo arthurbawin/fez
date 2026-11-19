@@ -16,6 +16,10 @@
  *
  * FIXME: this does not yet compare errors, as it is less straightforward
  * than in the constant time step setting.
+ *
+ * The first step after restarting (t = 0.35) uses the variable-step BDF2 with
+ * the new dt = 0.05 and the last accepted dt = 0.1, so its error checks that
+ * the restart keeps the history of accepted time steps.
  */
 template <int dim>
 void test_restart()

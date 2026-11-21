@@ -3,6 +3,7 @@
 #include <boost/serialization/vector.hpp>
 #include <time_handler.h>
 
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -93,7 +94,14 @@ namespace
     const double value_dot =
       time_handler.compute_time_derivative(0, value, previous_values);
 
-    AssertThrow(std::abs(value_dot) < 1e-14,
+    // Allow cancellation roundoff in the variable-step BDF2 sum.
+    double derivative_scale = 0.;
+    for (const double coefficient : time_handler.get_bdf_coefficients())
+      derivative_scale += std::abs(coefficient * value[0]);
+    const double tolerance =
+      10. * std::numeric_limits<double>::epsilon() * derivative_scale;
+
+    AssertThrow(std::abs(value_dot) <= tolerance,
                 ExcMessage("Constant solution should have zero time "
                            "derivative after restart"));
   }
@@ -157,12 +165,33 @@ namespace
                             {1. / starting_dt, -1. / starting_dt, 0.});
     assert_constant_solution_has_zero_time_derivative(time_handler);
 
+    // Accept the reduced BDF1 step through the normal time-step handling path.
+    LA::ParVectorType present_solution(MPI_COMM_SELF, 1, 1);
+    present_solution = 42.;
+    const std::vector<LA::ParVectorType> previous_solutions(
+      time_handler.n_previous_solutions, present_solution);
+    AssertThrow(time_handler.is_timestep_accepted(present_solution,
+                                                  previous_solutions),
+                ExcMessage("The initial BDF1 step should be accepted"));
+
+    advance_once(time_handler);
+
+    const double second_dt = parameters.dt - starting_dt;
+    AssertThrow(std::abs(time_handler.get_current_timestep() - second_dt) <
+                  1e-14,
+                ExcMessage("Incorrect time step after BDF1 startup"));
+
+    // Analytical variable-step BDF2 coefficients for steps of 0.05 and 0.15.
+    assert_coefficients_are(time_handler, {35. / 3., -80. / 3., 15.});
+    assert_constant_solution_has_zero_time_derivative(time_handler);
+
     deallog << "steady_to_bdf2_bdf1_start OK" << std::endl;
   }
 } // namespace
 
-int main()
+int main(int argc, char *argv[])
 {
+  Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
   initlog();
 
   test_restart_from_steady_to_bdf1();

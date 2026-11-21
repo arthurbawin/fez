@@ -226,9 +226,13 @@ public:
   template <class Archive>
   void serialize(Archive &ar, const unsigned int version);
 
-  /** Override the time integration parameters (e.g. for restarting a simulation
-   * with different time step). This will update the time integration scheme and
-   * recompute the BDF coefficients if needed.
+  /**
+   * Update time-integration parameters after loading a checkpoint.
+   *
+   * For a stationary checkpoint, initialize the transient time history and
+   * resize and initialize the BDF coefficients for the configured scheme.
+   * For a transient checkpoint, update the final time and time step according
+   * to the time-step adaptation configuration.
    */
   void update_parameters_after_restart(
     const Parameters::TimeIntegration &new_parameters);

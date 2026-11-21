@@ -176,13 +176,15 @@ void TimeHandler::set_bdf_coefficients(
   switch (used_scheme)
   {
     case STAT:
-      bdf_coefficients[0] = 0.;
+      std::fill(bdf_coefficients.begin(), bdf_coefficients.end(), 0.);
       break;
     case BDF1:
     {
       const double dt     = time_steps[0];
       bdf_coefficients[0] = 1. / dt;
       bdf_coefficients[1] = -1. / dt;
+      for (unsigned int i = 2; i < bdf_coefficients.size(); ++i)
+        bdf_coefficients[i] = 0.;
       break;
     }
     case BDF2:
@@ -656,8 +658,10 @@ void TimeHandler::update_parameters_after_restart(
 
     simulation_times.assign(n_previous_solutions + 1, initial_time);
     time_steps.assign(n_previous_solutions + 1, initial_dt);
+    bdf_coefficients.assign(n_previous_solutions + 1, 0.);
 
     set_bdf_coefficients();
+
     return;
   }
 

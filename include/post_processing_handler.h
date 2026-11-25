@@ -435,13 +435,17 @@ private:
 
   /**
    * Add the computed forces to the passed table with required formatting.
+   * For stress-vector forces, optional contributions append Fx_pressure,
+   * Fx_viscous (and the other components), keeping the total force columns.
    */
-  void add_force_to_table(
-    const Tensor<1, dim>    &forces,
-    const TimeHandler       &time_handler,
-    TableHandler            &force_table,
-    const types::boundary_id boundary_id,
-    const unsigned int       i_slice = numbers::invalid_unsigned_int);
+  void
+  add_force_to_table(const Tensor<1, dim>    &forces,
+                     const TimeHandler       &time_handler,
+                     TableHandler            &force_table,
+                     const types::boundary_id boundary_id,
+                     const unsigned int i_slice = numbers::invalid_unsigned_int,
+                     const Tensor<1, dim> *pressure_force = nullptr,
+                     const Tensor<1, dim> *viscous_force  = nullptr);
 
   /**
    * Add the computed position of the structure's geometric center to the passed
@@ -531,6 +535,9 @@ private:
   TableHandler  forces_table;
   Vector<float> slice_indices;
   TableHandler  forces_table_per_slice;
+  // Independent histories for the second method in combined output mode.
+  TableHandler forces_table_lagrange;
+  TableHandler forces_table_per_slice_lagrange;
 
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
@@ -818,204 +825,291 @@ void PostProcessingHandler<dim>::compute_forces(
   const auto &forces_param = post_proc_param.forces;
   using Forces             = Parameters::PostProcessing::Forces;
 
-  std::string method = "";
+  const bool both_methods =
+    forces_param.method == Forces::ComputationMethod::both;
+  if (both_methods)
+    AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
+                ExcMessage("Computing both forces requires a Lagrange "
+                           "multiplier variable."));
 
-  // Local face forces, retained for each boundary to compute its slices.
-  std::vector<Tensor<1, dim>> force_per_face(
-    dof_handler.get_triangulation().n_faces());
+  std::vector<Forces::ComputationMethod> methods;
+  if (both_methods)
+    methods = {Forces::ComputationMethod::stress_vector,
+               Forces::ComputationMethod::lagrange_multiplier};
+  else
+    methods = {forces_param.method};
 
-  const auto compute_on_boundary =
-    [&](const types::boundary_id     boundary_id,
-        std::vector<Tensor<1, dim>> &force_per_face) {
-      Tensor<1, dim> forces;
-      switch (forces_param.method)
-      {
-        case Forces::ComputationMethod::stress_vector:
-        {
-          method = "stress_vector";
-          const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
-          const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
+  for (const auto computation_method : methods)
+  {
+    const bool second_method =
+      both_methods &&
+      computation_method == Forces::ComputationMethod::lagrange_multiplier;
+    auto &force_table = second_method ? forces_table_lagrange : forces_table;
+    auto &slice_table =
+      second_method ? forces_table_per_slice_lagrange : forces_table_per_slice;
+    std::string method = "";
 
-          /**
-           * Depending on the model solved in each solver, the pressure is
-           * scaled by either the fluid density, or is modified (in the
-           * Cahn-Hilliard solver), and must be postprocessed to recover the
-           * true pressure for force evaluation.
-           *
-           * FIXME1: the pressure scale below currently handles only the NS
-           * solvers. Each solver should provide a routine to recover the true
-           * pressure
-           *
-           * FIXME2: we must take the density and viscosity of the mixture for
-           * CHNS solvers
-           */
+    // Local face forces, retained for each boundary to compute its slices.
+    std::vector<Tensor<1, dim>> force_per_face(
+      dof_handler.get_triangulation().n_faces());
 
-          AssertThrow(
-            !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
-            ExcMessage(
-              "Force computation must be modified for the Cahn-Hilliard "
-              "solver. It must recover the true pressure from the computed "
-              "one, and use the density and viscosity of the mixture."));
+    // Decompose only forces requested through the stress-vector method.
+    const bool split_stress =
+      computation_method == Forces::ComputationMethod::stress_vector;
+    std::vector<Tensor<1, dim>> pressure_per_face(
+      split_stress ? force_per_face.size() : 0);
+    std::vector<Tensor<1, dim>> viscous_per_face(
+      split_stress ? force_per_face.size() : 0);
 
-          const double pressure_scale = physical_properties.fluids[0].density;
-          const double mu = physical_properties.fluids[0].dynamic_viscosity;
-
-          forces =
-            PostProcessingTools::compute_forces_on_boundary(dof_handler,
-                                                            mapping,
-                                                            face_quadrature,
-                                                            solution,
-                                                            boundary_id,
-                                                            velocity_extractor,
-                                                            pressure_extractor,
-                                                            pressure_scale,
-                                                            mu,
-                                                            force_per_face);
-          break;
-        }
-        case Forces::ComputationMethod::lagrange_multiplier:
-        {
-          method = "lagrange_multiplier";
-          AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
-                      ExcMessage(
-                        "Cannot compute forces with a Lagrange multiplier "
-                        "because the chosen solver does not have a Lagrange "
-                        "multiplier variable."));
-
-          const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
-          const double rho = physical_properties.fluids[0].density;
-          forces           = PostProcessingTools::
-            compute_forces_on_boundary_with_lagrange_multiplier(
-              dof_handler,
-              mapping,
-              face_quadrature,
-              solution,
-              boundary_id,
-              lambda_extractor,
-              rho,
-              force_per_face);
-          break;
-        }
-        default:
-          DEAL_II_NOT_IMPLEMENTED();
-      }
-      return forces;
+    const auto compute_stress = [&](const types::boundary_id     boundary_id,
+                                    std::vector<Tensor<1, dim>> &face_forces) {
+      return PostProcessingTools::compute_forces_on_boundary(
+        dof_handler,
+        mapping,
+        face_quadrature,
+        solution,
+        boundary_id,
+        FEValuesExtractors::Vector(ordering.u_lower),
+        FEValuesExtractors::Scalar(ordering.p_lower),
+        physical_properties.fluids[0].density,
+        physical_properties.fluids[0].dynamic_viscosity,
+        face_forces,
+        &pressure_per_face,
+        &viscous_per_face);
     };
 
-  std::map<types::boundary_id, Tensor<1, dim>> forces_per_boundary;
-  for (const auto id : forces_param.boundary_ids)
-    forces_per_boundary.emplace(id, compute_on_boundary(id, force_per_face));
+    const auto compute_on_boundary =
+      [&](const types::boundary_id     boundary_id,
+          std::vector<Tensor<1, dim>> &force_per_face) {
+        Tensor<1, dim> forces;
+        switch (computation_method)
+        {
+          case Forces::ComputationMethod::stress_vector:
+          {
+            method = "stress_vector";
+            /**
+             * Depending on the model solved in each solver, the pressure is
+             * scaled by either the fluid density, or is modified (in the
+             * Cahn-Hilliard solver), and must be postprocessed to recover the
+             * true pressure for force evaluation.
+             *
+             * FIXME1: the pressure scale below currently handles only the NS
+             * solvers. Each solver should provide a routine to recover the true
+             * pressure
+             *
+             * FIXME2: we must take the density and viscosity of the mixture for
+             * CHNS solvers
+             */
 
-  if (forces_param.verbosity == Parameters::Verbosity::verbose && mpi_rank == 0)
-  {
-    std::ios::fmtflags old_flags     = std::cout.flags();
-    unsigned int       old_precision = std::cout.precision();
+            AssertThrow(
+              !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
+              ExcMessage(
+                "Force computation must be modified for the Cahn-Hilliard "
+                "solver. It must recover the true pressure from the computed "
+                "one, and use the density and viscosity of the mixture."));
 
-    std::vector<std::string> dim_str = {"x", "y", "z"};
-    std::cout << std::scientific << std::setprecision(forces_param.precision)
-              << std::showpos << std::endl;
-    for (const auto &[id, force] : forces_per_boundary)
+            forces = compute_stress(boundary_id, force_per_face);
+            break;
+          }
+          case Forces::ComputationMethod::lagrange_multiplier:
+          {
+            method = "lagrange_multiplier";
+            AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
+                        ExcMessage(
+                          "Cannot compute forces with a Lagrange multiplier "
+                          "because the chosen solver does not have a Lagrange "
+                          "multiplier variable."));
+
+            const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
+            const double rho = physical_properties.fluids[0].density;
+            forces           = PostProcessingTools::
+              compute_forces_on_boundary_with_lagrange_multiplier(
+                dof_handler,
+                mapping,
+                face_quadrature,
+                solution,
+                boundary_id,
+                lambda_extractor,
+                rho,
+                force_per_face);
+            break;
+          }
+          default:
+            DEAL_II_NOT_IMPLEMENTED();
+        }
+        return forces;
+      };
+
+    std::map<types::boundary_id, Tensor<1, dim>> forces_per_boundary;
+    for (const auto id : forces_param.boundary_ids)
+      forces_per_boundary.emplace(id, compute_on_boundary(id, force_per_face));
+
+    if (forces_param.verbosity == Parameters::Verbosity::verbose &&
+        mpi_rank == 0)
     {
-      std::cout << "Forces on boundary with id " << id
-                << " computed with method : " << method << std::endl;
-      for (unsigned int d = 0; d < dim; ++d)
-        std::cout << "F" + dim_str[d] << " = " << force[d] << std::endl;
-    }
+      std::ios::fmtflags old_flags     = std::cout.flags();
+      unsigned int       old_precision = std::cout.precision();
 
-    std::cout.precision(old_precision);
-    std::cout.flags(old_flags);
-  }
-
-  // Add forces to forces table and write if time step matches frequency
-  {
-    for (const auto &[id, force] : forces_per_boundary)
-      add_force_to_table(force, time_handler, forces_table, id);
-
-    if (mpi_rank == 0 && should_output_forces(time_handler))
-    {
-      std::ofstream outfile(output_param.output_dir +
-                            post_proc_param.forces.output_prefix + ".txt");
-      write_table(outfile, forces_table, post_proc_param.forces);
-    }
-  }
-
-  // Compute forces on each slice of given boundary
-  const auto &slices_param = post_proc_param.slices;
-  if (slices_param.enable && slices_param.compute_forces_on_slices)
-  {
-    for (const auto id : slices_param.boundary_ids)
-    {
-      std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
-      std::vector<Tensor<1, dim>> forces_per_slice(slices_param.n_slices);
-
-      for (const auto &cell : dof_handler.active_cell_iterators())
-        if (cell->is_locally_owned())
-          for (const auto &face : cell->face_iterators())
-            if (face->at_boundary() && face->boundary_id() == id)
-            {
-              AssertIndexRange(face->user_index(), slices_param.n_slices);
-              forces_per_slice_local[face->user_index()] +=
-                force_per_face[face->index()];
-            }
-
-      for (unsigned int i = 0; i < slices_param.n_slices; ++i)
+      std::vector<std::string> dim_str = {"x", "y", "z"};
+      std::cout << std::scientific << std::setprecision(forces_param.precision)
+                << std::showpos << std::endl;
+      for (const auto &[id, force] : forces_per_boundary)
       {
-        forces_per_slice[i] =
-          Utilities::MPI::sum(forces_per_slice_local[i],
-                              dof_handler.get_mpi_communicator());
-        add_force_to_table(
-          forces_per_slice[i], time_handler, forces_table_per_slice, id, i);
+        std::cout << "Forces on boundary with id " << id
+                  << " computed with method : " << method << std::endl;
+        for (unsigned int d = 0; d < dim; ++d)
+          std::cout << "F" + dim_str[d] << " = " << force[d] << std::endl;
       }
 
-      if (forces_param.verbosity == Parameters::Verbosity::verbose &&
-          mpi_rank == 0)
-      {
-        std::ios::fmtflags old_flags     = std::cout.flags();
-        unsigned int       old_precision = std::cout.precision();
+      std::cout.precision(old_precision);
+      std::cout.flags(old_flags);
+    }
 
-        std::vector<std::string> dim_str = {"x", "y", "z"};
-        std::cout << std::scientific
-                  << std::setprecision(forces_param.precision) << std::showpos
-                  << std::endl;
-        std::cout << "Forces per slice on boundary with id " << id << ":"
-                  << std::endl;
+    const std::string method_suffix = both_methods ? "_" + method : "";
+
+    // Add forces to forces table and write if time step matches frequency
+    {
+      for (const auto &[id, force] : forces_per_boundary)
+      {
+        Tensor<1, dim> pressure_local, viscous_local;
+        if (split_stress)
+          for (const auto &cell : dof_handler.active_cell_iterators())
+            if (cell->is_locally_owned())
+              for (const auto &face : cell->face_iterators())
+                if (face->at_boundary() && face->boundary_id() == id)
+                {
+                  pressure_local += pressure_per_face[face->index()];
+                  viscous_local += viscous_per_face[face->index()];
+                }
+        const auto pressure =
+          split_stress ?
+            Utilities::MPI::sum(pressure_local,
+                                dof_handler.get_mpi_communicator()) :
+            Tensor<1, dim>();
+        const auto viscous =
+          split_stress ?
+            Utilities::MPI::sum(viscous_local,
+                                dof_handler.get_mpi_communicator()) :
+            Tensor<1, dim>();
+        add_force_to_table(force,
+                           time_handler,
+                           force_table,
+                           id,
+                           numbers::invalid_unsigned_int,
+                           split_stress ? &pressure : nullptr,
+                           split_stress ? &viscous : nullptr);
+      }
+
+      if (mpi_rank == 0 && should_output_forces(time_handler))
+      {
+        std::ofstream outfile(output_param.output_dir +
+                              post_proc_param.forces.output_prefix +
+                              method_suffix + ".txt");
+        write_table(outfile, force_table, post_proc_param.forces);
+      }
+    }
+
+    // Compute forces on each slice of given boundary
+    const auto &slices_param = post_proc_param.slices;
+    if (slices_param.enable && slices_param.compute_forces_on_slices)
+    {
+      for (const auto id : slices_param.boundary_ids)
+      {
+        std::vector<Tensor<1, dim>> forces_per_slice_local(
+          slices_param.n_slices);
+        std::vector<Tensor<1, dim>> forces_per_slice(slices_param.n_slices);
+        std::vector<Tensor<1, dim>> pressure_local(slices_param.n_slices);
+        std::vector<Tensor<1, dim>> viscous_local(slices_param.n_slices);
+
+        for (const auto &cell : dof_handler.active_cell_iterators())
+          if (cell->is_locally_owned())
+            for (const auto &face : cell->face_iterators())
+              if (face->at_boundary() && face->boundary_id() == id)
+              {
+                AssertIndexRange(face->user_index(), slices_param.n_slices);
+                forces_per_slice_local[face->user_index()] +=
+                  force_per_face[face->index()];
+                if (split_stress)
+                {
+                  pressure_local[face->user_index()] +=
+                    pressure_per_face[face->index()];
+                  viscous_local[face->user_index()] +=
+                    viscous_per_face[face->index()];
+                }
+              }
+
         for (unsigned int i = 0; i < slices_param.n_slices; ++i)
         {
-          std::cout << "Slice " << i << ": ";
-          for (unsigned int d = 0; d < dim; ++d)
-            std::cout << "F" + dim_str[d] << " = " << forces_per_slice[i][d]
-                      << "\t";
-          std::cout << std::endl;
+          forces_per_slice[i] =
+            Utilities::MPI::sum(forces_per_slice_local[i],
+                                dof_handler.get_mpi_communicator());
+          const auto pressure =
+            split_stress ?
+              Utilities::MPI::sum(pressure_local[i],
+                                  dof_handler.get_mpi_communicator()) :
+              Tensor<1, dim>();
+          const auto viscous =
+            split_stress ?
+              Utilities::MPI::sum(viscous_local[i],
+                                  dof_handler.get_mpi_communicator()) :
+              Tensor<1, dim>();
+          add_force_to_table(forces_per_slice[i],
+                             time_handler,
+                             slice_table,
+                             id,
+                             i,
+                             split_stress ? &pressure : nullptr,
+                             split_stress ? &viscous : nullptr);
         }
 
-        std::cout.precision(old_precision);
-        std::cout.flags(old_flags);
+        if (forces_param.verbosity == Parameters::Verbosity::verbose &&
+            mpi_rank == 0)
+        {
+          std::ios::fmtflags old_flags     = std::cout.flags();
+          unsigned int       old_precision = std::cout.precision();
+
+          std::vector<std::string> dim_str = {"x", "y", "z"};
+          std::cout << std::scientific
+                    << std::setprecision(forces_param.precision) << std::showpos
+                    << std::endl;
+          std::cout << "Forces per slice on boundary with id " << id << ":"
+                    << std::endl;
+          for (unsigned int i = 0; i < slices_param.n_slices; ++i)
+          {
+            std::cout << "Slice " << i << ": ";
+            for (unsigned int d = 0; d < dim; ++d)
+              std::cout << "F" + dim_str[d] << " = " << forces_per_slice[i][d]
+                        << "\t";
+            std::cout << std::endl;
+          }
+
+          std::cout.precision(old_precision);
+          std::cout.flags(old_flags);
+        }
+
+        // Check that sum of forces on slices is the force on boundary
+        {
+          Tensor<1, dim> sum_slices;
+          for (const auto &f : forces_per_slice)
+            sum_slices += f;
+
+          AssertThrow((forces_per_boundary.at(id) - sum_slices).norm_square() <
+                        1e-14,
+                      ExcMessage(
+                        "Sum of forces on slices does not match the total "
+                        "forces on this boundary"));
+        }
       }
 
-      // Check that sum of forces on slices is the force on boundary
+      // Write to file
+      if (mpi_rank == 0 &&
+          should_output_postprocessing(time_handler, slices_param))
       {
-        Tensor<1, dim> sum_slices;
-        for (const auto &f : forces_per_slice)
-          sum_slices += f;
-
-        AssertThrow((forces_per_boundary.at(id) - sum_slices).norm_square() <
-                      1e-14,
-                    ExcMessage(
-                      "Sum of forces on slices does not match the total "
-                      "forces on this boundary"));
+        std::ofstream slices_outfile(
+          output_param.output_dir + post_proc_param.forces.output_prefix +
+          method_suffix + "_" + slices_param.output_prefix + ".txt");
+        write_table(slices_outfile, slice_table, post_proc_param.forces);
       }
-    }
-
-    // Write to file
-    if (mpi_rank == 0 &&
-        should_output_postprocessing(time_handler, slices_param))
-    {
-      std::ofstream slices_outfile(output_param.output_dir +
-                                   post_proc_param.forces.output_prefix + "_" +
-                                   slices_param.output_prefix + ".txt");
-      write_table(slices_outfile,
-                  forces_table_per_slice,
-                  post_proc_param.forces);
     }
   }
 }

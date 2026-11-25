@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-25
+
+### Changed
+**force post processing output modification** - Joan Le Pouhaër
+
+Allow stress-vector forces, Lagrange-multiplier forces, or both to be output, with automatic pressure and viscous contributions for stress-vector forces.
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

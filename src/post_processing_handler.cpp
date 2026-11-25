@@ -211,7 +211,9 @@ void PostProcessingHandler<dim>::add_force_to_table(
   const TimeHandler       &time_handler,
   TableHandler            &force_table,
   const types::boundary_id boundary_id,
-  const unsigned int       i_slice)
+  const unsigned int       i_slice,
+  const Tensor<1, dim>    *pressure_force,
+  const Tensor<1, dim>    *viscous_force)
 {
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
@@ -226,6 +228,17 @@ void PostProcessingHandler<dim>::add_force_to_table(
                               post_proc_param.forces.precision);
     force_table.set_scientific("F" + dim_str[d], true);
   }
+  if (pressure_force && viscous_force)
+    for (const std::string contribution : {"pressure", "viscous"})
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        const auto   column = "F" + dim_str[d] + "_" + contribution;
+        const double value = contribution == "pressure" ? (*pressure_force)[d] :
+                                                          (*viscous_force)[d];
+        force_table.add_value(column, value);
+        force_table.set_precision(column, post_proc_param.forces.precision);
+        force_table.set_scientific(column, true);
+      }
 }
 
 template <int dim>
@@ -320,7 +333,18 @@ void PostProcessingHandler<dim>::write_table(
 template <int dim>
 void PostProcessingHandler<dim>::write_forces(std::ostream &out) const
 {
+  const bool both_methods =
+    post_proc_param.forces.method ==
+    Parameters::PostProcessing::Forces::ComputationMethod::both;
+  if (both_methods && mpi_rank == 0)
+    out << "# stress_vector\n";
   write_table(out, forces_table, post_proc_param.forces);
+  if (both_methods)
+  {
+    if (mpi_rank == 0)
+      out << "# lagrange_multiplier\n";
+    write_table(out, forces_table_lagrange, post_proc_param.forces);
+  }
 }
 
 template <int dim>

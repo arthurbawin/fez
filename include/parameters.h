@@ -358,7 +358,8 @@ namespace Parameters
       enum class ComputationMethod
       {
         stress_vector,
-        lagrange_multiplier
+        lagrange_multiplier,
+        both
       } method;
     } forces;
 

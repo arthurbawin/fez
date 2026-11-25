@@ -528,8 +528,9 @@ namespace Parameters
         prm.declare_entry("computation method",
                           "stress vector",
                           Patterns::Selection(
-                            "stress vector|lagrange multiplier"),
-                          "Method used to evaluate the hydrodynamic forces");
+                            "stress vector|lagrange multiplier|both"),
+                          "Method used to evaluate the hydrodynamic forces. "
+                          "Both writes separate files for each method.");
       }
       prm.leave_subsection();
       prm.enter_subsection("field integral");
@@ -677,6 +678,8 @@ namespace Parameters
           forces.method = Forces::ComputationMethod::stress_vector;
         else if (parsed_method == "lagrange multiplier")
           forces.method = Forces::ComputationMethod::lagrange_multiplier;
+        else if (parsed_method == "both")
+          forces.method = Forces::ComputationMethod::both;
       }
       prm.leave_subsection();
       prm.enter_subsection("field integral");

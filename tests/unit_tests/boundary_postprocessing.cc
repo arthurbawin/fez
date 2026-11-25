@@ -19,6 +19,9 @@ public:
   {}
   double value(const Point<dim> &p, const unsigned int c) const override
   {
+    // Linear shear gives a nonzero, exactly representable viscous traction.
+    if (c == 0)
+      return p[1];
     if (c == dim)
       return 2.;
     if (c > dim && c <= 2 * dim)
@@ -66,7 +69,7 @@ void test_boundaries()
   param.output.skin.write_results                  = false;
   param.physical_properties.fluids.resize(1);
   param.physical_properties.fluids[0].density           = 1.234;
-  param.physical_properties.fluids[0].dynamic_viscosity = 1.;
+  param.physical_properties.fluids[0].dynamic_viscosity = 1.7;
   auto &pp                                              = param.postprocessing;
   for (auto *p : std::array<PP::PostProcessingFileBoundary *, 3>{
          {&pp.forces, &pp.structure_position, &pp.slices}})
@@ -87,9 +90,22 @@ void test_boundaries()
   ordering.x_lower = 2 * dim + 1;
   TimeHandler time_handler(param.time_integration);
 
+  std::vector<std::string> separate_force_tables;
   for (const auto method : {PP::Forces::ComputationMethod::stress_vector,
-                            PP::Forces::ComputationMethod::lagrange_multiplier})
+                            PP::Forces::ComputationMethod::lagrange_multiplier,
+                            PP::Forces::ComputationMethod::both})
   {
+    if (method == PP::Forces::ComputationMethod::both)
+    {
+      prm.enter_subsection("Postprocessing");
+      prm.enter_subsection("forces computation");
+      prm.set("computation method", "both");
+      prm.leave_subsection();
+      prm.leave_subsection();
+      PP parsed;
+      parsed.read_parameters(prm);
+      AssertThrow(parsed.forces.method == method, ExcInternalError());
+    }
     pp.forces.method = method;
     PostProcessingHandler<dim> handler(ordering, param, tria, dofs, {});
     handler.output_fields(mapping, solution, time_handler, {});
@@ -118,8 +134,23 @@ void test_boundaries()
       handler.write_forces(forces);
       handler.write_structure_mean_position(positions);
 
+      if (method == PP::Forces::ComputationMethod::both)
+      {
+        // Combined output must preserve both independently verified histories,
+        // including pressure/viscous columns, repeated calls and hp
+        // integration.
+        AssertThrow(separate_force_tables.size() == 2, ExcInternalError());
+        const std::string expected =
+          "# stress_vector\n" + separate_force_tables[0] +
+          "# lagrange_multiplier\n" + separate_force_tables[1];
+        AssertThrow(forces.str() == expected, ExcInternalError());
+        continue;
+      }
+      separate_force_tables.push_back(forces.str());
+
       const double area    = std::pow(2., dim - 1);
       const double density = param.physical_properties.fluids[0].density;
+      const double mu = param.physical_properties.fluids[0].dynamic_viscosity;
 
       // Compare the content of the force and mean position table
       // with the expected output.
@@ -128,6 +159,14 @@ void test_boundaries()
         std::istringstream table(is_force ? forces.str() : positions.str());
         std::string        header;
         std::getline(table, header);
+        if (is_force &&
+            method == PP::Forces::ComputationMethod::lagrange_multiplier)
+        {
+          AssertThrow(header.find("_pressure") == std::string::npos,
+                      ExcInternalError());
+          AssertThrow(header.find("_viscous") == std::string::npos,
+                      ExcInternalError());
+        }
         for (unsigned int row = 0; row < 4; ++row)
         {
           double       t;
@@ -146,14 +185,41 @@ void test_boundaries()
               if (method == PP::Forces::ComputationMethod::lagrange_multiplier)
                 expected = density * (d + 1.) * area;
               else
-                expected =
-                  d == 0 ? (id == 0 ? -1. : 1.) * 2. * density * area : 0.;
+                expected = d == 0 ? (id == 0 ? -1. : 1.) * 2. * density * area :
+                           d == 1 ? (id == 0 ? 1. : -1.) * mu * area :
+                                    0.;
             }
             else
               // Expected mean position
               expected = (d == 0 ? 2. + 2. * id : 3.);
             AssertThrow(std::abs(computed - expected) < 1e-10,
                         ExcInternalError());
+          }
+          if (is_force &&
+              method == PP::Forces::ComputationMethod::stress_vector)
+          {
+            // Check both separate physical traction integrals.
+            for (const std::string contribution : {"pressure", "viscous"})
+              for (unsigned int d = 0; d < dim; ++d)
+              {
+                const std::string column = "F" +
+                                           std::string(d == 0 ? "x" :
+                                                       d == 1 ? "y" :
+                                                                "z") +
+                                           "_" + contribution;
+                AssertThrow(header.find(column) != std::string::npos,
+                            ExcInternalError());
+                const double pressure =
+                  d == 0 ? (id == 0 ? -1. : 1.) * 2. * density * area : 0.;
+                const double viscous =
+                  d == 1 ? (id == 0 ? 1. : -1.) * mu * area : 0.;
+                const double expected =
+                  contribution == "pressure" ? pressure : viscous;
+                double computed;
+                AssertThrow(bool(table >> computed), ExcInternalError());
+                AssertThrow(std::abs(computed - expected) < 1e-10,
+                            ExcInternalError());
+              }
           }
         }
       }

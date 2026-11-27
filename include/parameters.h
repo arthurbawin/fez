@@ -675,7 +675,8 @@ namespace Parameters
     {
       direct_mumps,
       cg,
-      gmres
+      gmres,
+      fgmres
     } method;
 
     enum class PreconditionerType

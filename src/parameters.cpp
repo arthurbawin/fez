@@ -1266,7 +1266,7 @@ namespace Parameters
       prm.enter_subsection(solver_type);
       prm.declare_entry("method",
                         "direct_mumps",
-                        Patterns::Selection("direct_mumps|cg|gmres"),
+                        Patterns::Selection("direct_mumps|cg|gmres|fgmres"),
                         "Method");
       prm.declare_entry("preconditioner",
                         "none",
@@ -1328,6 +1328,8 @@ namespace Parameters
           method = Method::cg;
         else if (parsed_method == "gmres")
           method = Method::gmres;
+        else if (parsed_method == "fgmres")
+          method = Method::fgmres;
 
         const std::string parsed_prec = prm.get("preconditioner");
         if (parsed_prec == "none")

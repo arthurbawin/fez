@@ -5,9 +5,9 @@
 
 #include <algorithm>
 
-DeclExceptionMsg(ExcDataNotAttached,
+DeclExceptionMsg(ExcEstimatorNotInitialized,
                  "You are trying to use a BDFErrorEstimator which has "
-                 "uninitialized data. Call attach_data_to_error_estimator() "
+                 "uninitialized data. Call reinit_error_estimator() "
                  "from the TimeHandler before using the error estimator.");
 
 BDFErrorEstimator::BDFErrorEstimator(
@@ -27,14 +27,25 @@ BDFErrorEstimator::BDFErrorEstimator(
     DEAL_II_NOT_IMPLEMENTED();
 }
 
-void BDFErrorEstimator::attach_data(
+void BDFErrorEstimator::reinit(
   const ComponentOrdering          &ordering,
+  const IndexSet                   &locally_owned_dofs,
   const IndexSet                   &locally_relevant_dofs,
-  const std::vector<unsigned char> &dofs_to_component)
+  const std::vector<unsigned char> &dofs_to_component,
+  const MPI_Comm                    comm)
 {
   this->ordering              = &ordering;
   this->locally_relevant_dofs = &locally_relevant_dofs;
   this->dofs_to_component     = &dofs_to_component;
+
+  additional_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+
+  if (save_full_error_estimator)
+  {
+    locally_owned_elements = locally_owned_dofs;
+    error_estimator.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+    fully_distributed_error_estimator.reinit(locally_owned_dofs, comm);
+  }
 }
 
 void BDFErrorEstimator::advance(const TimeHandler &time_handler)
@@ -49,11 +60,6 @@ void BDFErrorEstimator::advance(const TimeHandler &time_handler)
 void BDFErrorEstimator::rotate_additional_solution(
   const LA::ParVectorType &solution)
 {
-  // This reinits additional_solution the first time this function is called,
-  // thanks to the crafty operator= for PETSc vectors (petsc_vector.h).
-  // That size-based initialization does not detect MPI repartitioning.
-  // Rebuild the ownership and ghost layout before copying the values.
-  additional_solution.reinit(solution, true);
   additional_solution = solution;
 }
 
@@ -62,10 +68,10 @@ void BDFErrorEstimator::compute_error_estimator(
   const LA::ParVectorType              &present_solution,
   const std::vector<LA::ParVectorType> &previous_solutions)
 {
-  // Check that attach_data() was called
-  Assert(ordering, ExcDataNotAttached());
-  Assert(locally_relevant_dofs, ExcDataNotAttached());
-  Assert(dofs_to_component, ExcDataNotAttached());
+  // Check that reinit() was called
+  Assert(ordering, ExcEstimatorNotInitialized());
+  Assert(locally_relevant_dofs, ExcEstimatorNotInitialized());
+  Assert(dofs_to_component, ExcEstimatorNotInitialized());
   AssertDimension(dofs_to_component->size(),
                   locally_relevant_dofs->n_elements());
 
@@ -73,19 +79,6 @@ void BDFErrorEstimator::compute_error_estimator(
   Assert(dofs_to_component->size() > 0,
          ExcMessage("The vector dofs_to_component should be filled before "
                     "entering this function."));
-
-  // If the full vector of error estimates for each dof must be stored and
-  // it has not yet been initialized, do it now
-  if (error_estimator.size() == 0)
-    if (save_full_error_estimator)
-    {
-      locally_owned_elements = present_solution.locally_owned_elements();
-      error_estimator.reinit(locally_owned_elements,
-                             *locally_relevant_dofs,
-                             present_solution.get_mpi_communicator());
-      fully_distributed_error_estimator.reinit(
-        locally_owned_elements, present_solution.get_mpi_communicator());
-    }
 
   // Set the handled variables the first time we enter here
   if (handled_variables.empty())

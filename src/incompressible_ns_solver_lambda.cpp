@@ -336,10 +336,12 @@ void NSSolverLambda<dim>::setup_dofs()
                          this->locally_relevant_dofs,
                          this->dofs_to_component);
 
-  // Attach data to time error estimator
-  this->time_handler.attach_data_to_error_estimator(*this->ordering,
-                                                    this->locally_relevant_dofs,
-                                                    this->dofs_to_component);
+  // Reinit the time error estimator
+  this->time_handler.reinit_error_estimator(*this->ordering,
+                                            this->locally_owned_dofs,
+                                            this->locally_relevant_dofs,
+                                            this->dofs_to_component,
+                                            comm);
 
   // Initialize parallel vectors
   this->present_solution->reinit(this->locally_owned_dofs,

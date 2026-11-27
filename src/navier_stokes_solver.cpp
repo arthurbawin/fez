@@ -477,10 +477,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
                          locally_relevant_dofs,
                          dofs_to_component);
 
-  // Attach data to time error estimator
-  time_handler.attach_data_to_error_estimator(*ordering,
-                                              locally_relevant_dofs,
-                                              dofs_to_component);
+  // Reinit the time error estimator
+  time_handler.reinit_error_estimator(*ordering,
+                                      locally_owned_dofs,
+                                      locally_relevant_dofs,
+                                      dofs_to_component,
+                                      comm);
 
   // Initialize parallel vectors
   present_solution->reinit(locally_owned_dofs, locally_relevant_dofs, comm);

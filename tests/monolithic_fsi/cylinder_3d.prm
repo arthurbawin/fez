@@ -69,7 +69,7 @@ end
 subsection Checkpoint Restart
   set enable checkpoint    = false
   set restart              = false
-  set checkpoint file      = checkpoint
+  set checkpoint prefix    = checkpoint
   set checkpoint frequency = 10
 end
 

@@ -3,8 +3,6 @@
 #include <mpi.h>
 #include <utilities.h>
 
-#include <filesystem>
-
 template <int dim>
 void create_quadrature_rules(
   const Parameters::FiniteElements<dim> &fe_param,
@@ -70,35 +68,6 @@ template void create_quadrature_rules(const Parameters::FiniteElements<2> &,
                                       std::unique_ptr<Quadrature<1>> &,
                                       std::unique_ptr<Quadrature<2>> &,
                                       std::unique_ptr<Quadrature<1>> &);
-
-void replace_temporary_files(const std::string directory,
-                             const std::string temporary_filename_prefix,
-                             const std::string final_filename_prefix,
-                             const MPI_Comm   &mpi_communicator)
-{
-  const unsigned int mpi_rank =
-    Utilities::MPI::this_mpi_process(mpi_communicator);
-  if (mpi_rank == 0)
-  {
-    std::list<std::string> tmp_checkpoint_files;
-    for (const auto &dir_entry : std::filesystem::directory_iterator(directory))
-      if (dir_entry.is_regular_file() &&
-          (dir_entry.path().filename().string().find(
-             temporary_filename_prefix) == 0))
-        tmp_checkpoint_files.push_back(dir_entry.path().filename().string());
-
-    for (const std::string &filename : tmp_checkpoint_files)
-    {
-      const std::string final_filename =
-        directory + final_filename_prefix +
-        filename.substr(temporary_filename_prefix.size(), std::string::npos);
-      std::filesystem::rename(directory + filename, final_filename);
-    }
-  }
-
-  // FIXME: check if this barrier is really needed
-  MPI_Barrier(mpi_communicator);
-}
 
 template <int dim>
 void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,

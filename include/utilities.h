@@ -2,6 +2,7 @@
 #define UTILITIES_H
 
 #include <deal.II/base/function.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/utilities.h>
@@ -17,6 +18,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -432,15 +434,35 @@ double compute_boundary_volume(const DoFHandler<dim>            &dof_handler,
 }
 
 /**
- * Rename temporary files containing the root "temporary_filename_prefix" to the
- * root "final_filename_prefix", while maintaining the suffixes. This is used to
- * overwrite the checkpoint save files, without risking to corrupt the previous
- * files, see also deal.II step 83.
+ * Call @p function on the root process of @p comm only, e.g., to write a file,
+ * then throw on all processes the exception it threw, if any, after @p context.
+ * If only the root process threw, the other processes would wait for it
+ * indefinitely at their next collective operation. The other processes also
+ * wait for @p function to return, e.g., before reading the written file.
  */
-void replace_temporary_files(const std::string directory,
-                             const std::string temporary_filename_prefix,
-                             const std::string final_filename_prefix,
-                             const MPI_Comm   &mpi_communicator);
+template <typename Function>
+void call_on_root_and_share_errors(const MPI_Comm     comm,
+                                   const Function    &function,
+                                   const std::string &context)
+{
+  std::string error_on_root;
+  if (Utilities::MPI::this_mpi_process(comm) == 0)
+    try
+    {
+      function();
+    }
+    catch (const std::exception &exc)
+    {
+      error_on_root = exc.what();
+      if (error_on_root.empty())
+        error_on_root = "Unknown error";
+    }
+
+  error_on_root = Utilities::MPI::broadcast(comm, error_on_root, 0);
+  AssertThrow(error_on_root.empty(),
+              ExcMessage(context + " failed on the root process:\n" +
+                         error_on_root));
+}
 
 /**
  * Fill the vector dofs_to_component, which contains for each relevant dof its

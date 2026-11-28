@@ -12,6 +12,11 @@ In the BDF error estimator, reinitialize the additional BDF history vector after
 ### Changed
 `TimeHandler::attach_data_to_error_estimator()` renamed `reinit_error_estimator()`, and also takes the locally owned dofs and the MPI communicator. [#128](https://github.com/arthurbawin/fez/pull/128)
 
+Serialize the postprocessing handler, to write full .pvd and postprocessing files after restart.
+The solution restored from a checkpoint is no longer postprocessed a second time, so a restarted simulation writes the same files as an uninterrupted one. Checkpoints written before this change are now invalid, and can no longer be read. [#129](https://github.com/arthurbawin/fez/pull/129)
+
+Each checkpoint is now written to its own directory `<prefix>_<N>.chk` in the output directory, with `N` the time step padded with zeros to 6 digits, instead of overwriting the previous checkpoint. An existing directory for the same time step is renamed to `<prefix>_<N>.bak<k>.chk`. The `Checkpoint Restart` parameter `checkpoint file` is renamed `checkpoint prefix`. The new parameter `restart from` selects the checkpoint directory to restart from (`latest` by default), and `checkpoints to keep` limits the number of kept checkpoint directories (all of them by default). A restart with a different number of MPI processes than the checkpoint now throws an error. [#129](https://github.com/arthurbawin/fez/pull/129)
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

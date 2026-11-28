@@ -19,6 +19,8 @@
 template <int dim>
 void test_restart()
 {
+  remove_checkpoint_directories("checkpoint", MPI_COMM_WORLD);
+
   // Manually create the parameters of the file
   // examples/fsi/flow_around_cylinder_on_spring_2d
   Parameters::BoundaryConditionsData bc_data;
@@ -226,7 +228,7 @@ void test_restart()
   prm.enter_subsection("Checkpoint Restart");
   prm.set("enable checkpoint", "true");
   prm.set("restart", "false");
-  prm.set("checkpoint file", "checkpoint");
+  prm.set("checkpoint prefix", "checkpoint");
   prm.set("checkpoint frequency", "4");
   prm.leave_subsection();
 
@@ -244,7 +246,8 @@ void test_restart()
   }
 
   // Update the restart parameters then restart
-  // The forces and position must be compared visually in the output
+  // The tables are restored from the checkpoint, so the forces and position
+  // tables after restart must be identical to the complete tables above
   {
     prm.enter_subsection("Checkpoint Restart");
     prm.set("enable checkpoint", "false");
@@ -257,7 +260,7 @@ void test_restart()
     param.read(prm);
     FSISolverLessLambda<dim> problem(param);
     problem.run();
-    deallog << "Forces and positions for last step after restart:" << std::endl;
+    deallog << "Forces and positions tables after restart:" << std::endl;
     problem.write_forces(deallog.get_file_stream());
     problem.write_structure_mean_position(deallog.get_file_stream());
   }

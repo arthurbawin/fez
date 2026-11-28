@@ -1,4 +1,5 @@
 
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -19,6 +20,8 @@
 template <int dim>
 void test_restart()
 {
+  remove_checkpoint_directories("checkpoint", MPI_COMM_WORLD);
+
   // Manually create the parameters of the MMS file
   // incompressible_ns/mms_2d_bdf2.prm
   Parameters::BoundaryConditionsData bc_data;
@@ -40,7 +43,11 @@ void test_restart()
 
   // Output
   prm.enter_subsection("Output");
-  prm.set("write vtu results", "false");
+  prm.set("write vtu results", "true");
+  prm.enter_subsection("skin");
+  prm.set("write vtu results", "true");
+  prm.set("boundary id", "1");
+  prm.leave_subsection();
   /**
    * The checkpoint files will be written in the current test directory
    */
@@ -159,7 +166,7 @@ void test_restart()
   prm.enter_subsection("Checkpoint Restart");
   prm.set("enable checkpoint", "true");
   prm.set("restart", "false");
-  prm.set("checkpoint file", "checkpoint");
+  prm.set("checkpoint prefix", "checkpoint");
   prm.set("checkpoint frequency", "3");
   prm.leave_subsection();
 
@@ -197,7 +204,9 @@ void test_restart()
     prm.enter_subsection("Checkpoint Restart");
     prm.set("enable checkpoint", "false");
     prm.set("restart", "true");
-    prm.set("checkpoint file", "checkpoint");
+    prm.set("checkpoint prefix", "checkpoint");
+    // Restart from an explicit checkpoint directory, rather than the latest
+    prm.set("restart from", "checkpoint_000003.chk");
     prm.set("checkpoint frequency", "3");
     prm.leave_subsection();
 
@@ -223,6 +232,25 @@ void test_restart()
               << " - e_p = " << ep.second << std::endl;
     }
   }
+
+  // Both collections must retain every output before the checkpoint.
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    for (const auto &prefix : {std::string("solution"), std::string("skin")})
+    {
+      std::ifstream input(prefix + "_convergence_step_0.pvd");
+      AssertThrow(input.good(), ExcMessage("Missing restart PVD: " + prefix));
+      const std::string text{std::istreambuf_iterator<char>(input), {}};
+      unsigned int      count = 0;
+      for (std::size_t pos = text.find("<DataSet"); pos != std::string::npos;
+           pos             = text.find("<DataSet", pos + 1))
+        ++count;
+      AssertThrow(count == 6,
+                  ExcMessage("Restart lost or duplicated PVD history"));
+      for (unsigned int i = 0; i < 6; ++i)
+        AssertThrow(text.find("_" + Utilities::int_to_string(i, 2) + ".pvtu") !=
+                      std::string::npos,
+                    ExcMessage("Missing PVD timestep after restart"));
+    }
 
   AssertThrow(e_u.size() == 6, ExcMessage("Size mismatch"));
   AssertThrow(e_p.size() == 6, ExcMessage("Size mismatch"));

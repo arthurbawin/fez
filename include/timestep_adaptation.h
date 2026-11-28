@@ -47,14 +47,21 @@ public:
                     const TimeHandler                 &time_handler);
 
   /**
-   * Attach solver data to this object.
-   * This function is called by attach_data_to_error_estimator in the
-   * TimeHandler, which must be called once before computing the first error
-   * estimates.
+   * Store pointers to the solver's dof data, and initialize vectors with the
+   * parallel layout given by @p locally_owned_dofs and @p locally_relevant_dofs.
+   * The stored simulation times are kept, so that the error estimation can
+   * continue after mesh adaptation.
+   *
+   * This function is called by reinit_error_estimator in the TimeHandler, which
+   * must be called before computing the first error estimates, and again each
+   * time the dofs are redistributed (e.g., after mesh adaptation), as the
+   * parallel layout may change even if the number of dofs does not.
    */
-  void attach_data(const ComponentOrdering          &ordering,
-                   const IndexSet                   &locally_relevant_dofs,
-                   const std::vector<unsigned char> &dofs_to_component);
+  void reinit(const ComponentOrdering          &ordering,
+              const IndexSet                   &locally_owned_dofs,
+              const IndexSet                   &locally_relevant_dofs,
+              const std::vector<unsigned char> &dofs_to_component,
+              const MPI_Comm                    comm);
 
   /**
    * Rotate the stored simulation times t_{n+1} through t_{n+1-(p+1)}.

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-17
+
+### Fixed
+In the BDF error estimator, reinitialize the additional BDF history vector after MPI repartitioning, even when the global number of DoFs is unchanged. This prevents incompatible local vector sizes after mesh adaptation when time step adaptation based on BDF truncation error is enabled. The vector is also no longer unnecessarily stored with CFL-based time stepping. [#128](https://github.com/arthurbawin/fez/pull/128)
+
+### Changed
+`TimeHandler::attach_data_to_error_estimator()` renamed `reinit_error_estimator()`, and also takes the locally owned dofs and the MPI communicator. [#128](https://github.com/arthurbawin/fez/pull/128)
+
 ## [0.0.0] 2026-11-16
 
 ### Changed

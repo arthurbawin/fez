@@ -97,7 +97,9 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
 
-  if (!is_steady() && with_adaptive_timestep)
+  using Strategy = Parameters::TimeIntegration::Adaptation::AdaptationStrategy;
+  if (!is_steady() && with_adaptive_timestep &&
+      time_parameters.adaptation.strategy == Strategy::BDFTruncationError)
     error_estimator =
       std::make_shared<BDFErrorEstimator>(time_parameters, *this);
 }
@@ -238,7 +240,7 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   }
 
   // Advance the time tables in the error estimator
-  if (with_adaptive_timestep)
+  if (error_estimator)
     error_estimator->advance(*this);
 
   rolledback_step = false;
@@ -252,7 +254,7 @@ void TimeHandler::rotate_solutions(
   {
     // Rotate the additional solution vector in the error estimator
     // Do this first, before overwriting the last solution
-    if (!is_steady() && with_adaptive_timestep)
+    if (error_estimator)
       error_estimator->rotate_additional_solution(previous_solutions.back());
 
     for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
@@ -266,19 +268,24 @@ const std::vector<double> &TimeHandler::get_bdf_coefficients() const
   return bdf_coefficients;
 }
 
-void TimeHandler::attach_data_to_error_estimator(
+void TimeHandler::reinit_error_estimator(
   const ComponentOrdering          &ordering,
+  const IndexSet                   &locally_owned_dofs,
   const IndexSet                   &locally_relevant_dofs,
-  const std::vector<unsigned char> &dofs_to_component)
+  const std::vector<unsigned char> &dofs_to_component,
+  const MPI_Comm                    comm)
 {
   if (error_estimator)
-    error_estimator->attach_data(ordering,
-                                 locally_relevant_dofs,
-                                 dofs_to_component);
+    error_estimator->reinit(ordering,
+                            locally_owned_dofs,
+                            locally_relevant_dofs,
+                            dofs_to_component,
+                            comm);
 }
 
 const LA::ParVectorType &TimeHandler::get_error_estimator_as_solution() const
 {
+  Assert(error_estimator, ExcInternalError());
   return error_estimator->get_error_estimator_as_solution();
 }
 

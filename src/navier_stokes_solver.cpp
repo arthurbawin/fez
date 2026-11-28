@@ -1,6 +1,7 @@
 
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#include <checkpoint_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
@@ -416,7 +417,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
 
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
 
-    if (param.checkpoint_restart.enable_checkpoint &&
+    if (param.checkpoint_restart.enable &&
         (time_handler.current_time_iteration %
            param.checkpoint_restart.checkpoint_frequency ==
          0))
@@ -1363,16 +1364,30 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 {
   TimerOutput::Scope t(computing_timer, "Write checkpoint");
 
-  pcout << std::endl;
-  pcout << "--- Writing checkpoint... ---" << std::endl << std::endl;
+  const auto        &checkpoint_param = param.checkpoint_restart;
+  const unsigned int time_step        = time_handler.current_time_iteration;
 
-  const std::string tmp_checkpoint_prefix =
-    param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
+  pcout << std::endl;
+  pcout << "--- Writing checkpoint to "
+        << CheckpointTools::checkpoint_directory(param.output.output_dir,
+                                                 checkpoint_param.prefix,
+                                                 time_step)
+        << " ---" << std::endl
+        << std::endl;
+
+  // The checkpoint is written to a temporary directory, which is renamed in
+  // finalize_checkpoint_directory() once all ranks are done writing
+  const std::string directory =
+    CheckpointTools::create_temporary_checkpoint_directory(
+      param.output.output_dir,
+      checkpoint_param.prefix,
+      time_step,
+      mpi_communicator);
 
   {
     // Write a checkpoint file for each rank
     // All ranks will read the same local range for their PETSc vector otherwise
-    std::ofstream checkpoint_file(tmp_checkpoint_prefix + "_rank" +
+    std::ofstream checkpoint_file(directory + "state_rank" +
                                   std::to_string(mpi_rank));
     AssertThrow(checkpoint_file,
                 ExcMessage("Could not write to the checkpoint file."));
@@ -1383,24 +1398,38 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
     archive << *postproc_handler;
   }
 
-  triangulation->save(tmp_checkpoint_prefix);
+  triangulation->save(directory + "triangulation");
 
-  replace_temporary_files(param.output.output_dir,
-                          "tmp." + param.checkpoint_restart.filename,
-                          param.checkpoint_restart.filename,
-                          mpi_communicator);
+  CheckpointTools::write_checkpoint_info(directory,
+                                         time_step,
+                                         time_handler.current_time,
+                                         mpi_communicator);
+
+  CheckpointTools::finalize_checkpoint_directory(
+    param.output.output_dir,
+    checkpoint_param.prefix,
+    time_step,
+    checkpoint_param.n_checkpoints_to_keep,
+    mpi_communicator);
 }
 
 template <int dim, bool with_moving_mesh>
 bool NavierStokesSolver<dim, with_moving_mesh>::restart()
 {
+  const auto       &checkpoint_param = param.checkpoint_restart;
+  const std::string directory =
+    CheckpointTools::find_restart_directory(param.output.output_dir,
+                                            checkpoint_param.prefix,
+                                            checkpoint_param.restart_from,
+                                            mpi_communicator);
+
   pcout << std::endl;
-  pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
+  pcout << "--- Reading checkpoint from " << directory << " ---" << std::endl
+        << std::endl;
 
-  const std::string checkpoint_prefix =
-    param.output.output_dir + param.checkpoint_restart.filename;
+  CheckpointTools::check_checkpoint_info(directory, mpi_communicator);
 
-  triangulation->load(checkpoint_prefix);
+  triangulation->load(directory + "triangulation");
 
   // Setup up the dof handler and allocate parallel vectors before loading
   // the stored solutions
@@ -1408,7 +1437,7 @@ bool NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   bool postprocessing_restored = false;
   {
-    std::ifstream checkpoint_file(checkpoint_prefix + "_rank" +
+    std::ifstream checkpoint_file(directory + "state_rank" +
                                   std::to_string(mpi_rank));
     AssertThrow(checkpoint_file,
                 ExcMessage("Could not read from the checkpoint file."));

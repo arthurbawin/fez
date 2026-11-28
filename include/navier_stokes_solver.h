@@ -455,8 +455,10 @@ public:
   virtual void adapt_mesh() override;
 
   /**
-   * Write the current state of the simulation to compressed save files. This
-   * method and the restart() are based on deal.II's step 83. The written data
+   * Write the current state of the simulation to compressed save files, in
+   * the checkpoint directory of the current time step (see CheckpointTools).
+   * This method and the restart() are based on deal.II's step 83. The written
+   * data
    * are the mesh, the current and previous solutions, the content of the
    * time and postprocessing handlers. The checkpoint is written after the
    * solution of the current time step was postprocessed. All other data
@@ -468,7 +470,8 @@ public:
 
   /**
    * Restart the simulation from saved checkpoint files, written by
-   * checkpoint().
+   * checkpoint(), in the checkpoint directory given by the "restart from"
+   * parameter (see CheckpointTools::find_restart_directory()).
    *
    * The postprocessing handler is restored if the checkpoint and the restarted
    * simulation are both steady or both unsteady, in which case this function

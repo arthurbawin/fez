@@ -19,6 +19,8 @@
 template <int dim>
 void test_restart()
 {
+  remove_checkpoint_directories("checkpoint", MPI_COMM_WORLD);
+
   // Manually create the parameters of the file
   // examples/fsi/flow_around_cylinder_on_spring_2d
   Parameters::BoundaryConditionsData bc_data;
@@ -226,7 +228,7 @@ void test_restart()
   prm.enter_subsection("Checkpoint Restart");
   prm.set("enable checkpoint", "true");
   prm.set("restart", "false");
-  prm.set("checkpoint file", "checkpoint");
+  prm.set("checkpoint prefix", "checkpoint");
   prm.set("checkpoint frequency", "4");
   prm.leave_subsection();
 

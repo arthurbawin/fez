@@ -36,6 +36,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -616,6 +617,24 @@ inline void mpi_initlog(
   // can't use this function if not using MPI
   Assert(false, ExcInternalError());
 #endif
+}
+
+
+/**
+ * Remove the checkpoint directories <prefix>_* (including backups and
+ * temporary directories) left in the current directory by a previous run of
+ * a test, so that a restart cannot read a stale checkpoint.
+ */
+inline void remove_checkpoint_directories(const std::string &prefix,
+                                          const MPI_Comm     comm)
+{
+  if (Utilities::MPI::this_mpi_process(comm) == 0)
+    for (const auto &entry : std::filesystem::directory_iterator("."))
+      if (entry.is_directory() &&
+          entry.path().filename().string().rfind(prefix + "_", 0) == 0)
+        std::filesystem::remove_all(entry.path());
+  const int ierr = MPI_Barrier(comm);
+  AssertThrowMPI(ierr);
 }
 
 

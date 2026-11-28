@@ -1712,16 +1712,41 @@ namespace Parameters
       prm.declare_entry("restart",
                         "false",
                         Patterns::Bool(),
-                        "Restart simulation from given checkpoint file?");
+                        "Restart simulation from the checkpoint given by "
+                        "\"restart from\"?");
       prm.declare_entry(
-        "checkpoint file",
+        "checkpoint prefix",
         "checkpoint",
         Patterns::Anything(),
-        "Name of the file to write to and read from the checkpoint");
+        "Prefix of the checkpoint directories. The checkpoint written at time "
+        "step N is stored in the directory <prefix>_<N>.chk of the output "
+        "directory, with N padded with zeros. If this directory "
+        "already exists, e.g., when restarting from an earlier checkpoint, it "
+        "is first renamed to <prefix>_<N>.bak<k>.chk, with k the first unused "
+        "index.");
+      prm.declare_entry(
+        "restart from",
+        "latest",
+        Patterns::Anything(),
+        "Checkpoint directory to restart from, relative to the output "
+        "directory unless it is an absolute path, e.g., checkpoint_000120.chk. "
+        "With \"latest\", restart from the directory <prefix>_<N>.chk of the "
+        "output directory with the largest N. Note that this may be the "
+        "checkpoint of an abandoned run, if a simulation was restarted from an "
+        "earlier checkpoint and interrupted before reaching it.");
       prm.declare_entry("checkpoint frequency",
-                        "10",
-                        Patterns::Integer(),
+                        "100",
+                        Patterns::Integer(1),
                         "Write a checkpoint every N time steps");
+      prm.declare_entry(
+        "checkpoints to keep",
+        "0",
+        Patterns::Integer(0),
+        "Number of checkpoint directories to keep: after writing the "
+        "checkpoint at time step N, only the most recent directories "
+        "<prefix>_<M>.chk with M <= N are kept. The directories with M > N "
+        "(from an abandoned run) and the backups .bak<k>.chk are never "
+        "removed. With 0, all checkpoints are kept.");
     }
     prm.leave_subsection();
   }
@@ -1730,10 +1755,20 @@ namespace Parameters
   {
     prm.enter_subsection("Checkpoint Restart");
     {
-      enable_checkpoint    = prm.get_bool("enable checkpoint");
-      restart              = prm.get_bool("restart");
-      filename             = prm.get("checkpoint file");
-      checkpoint_frequency = prm.get_integer("checkpoint frequency");
+      enable                = prm.get_bool("enable checkpoint");
+      restart               = prm.get_bool("restart");
+      prefix                = prm.get("checkpoint prefix");
+      restart_from          = prm.get("restart from");
+      checkpoint_frequency  = prm.get_integer("checkpoint frequency");
+      n_checkpoints_to_keep = prm.get_integer("checkpoints to keep");
+
+      // The checkpoint directories are searched for in the output directory
+      // only, see CheckpointTools::find_restart_directory()
+      AssertThrow(prefix.find('/') == std::string::npos,
+                  ExcMessage(
+                    "The checkpoint prefix \"" + prefix +
+                    "\" must be a name, not a path: the checkpoint "
+                    "directories are written to the output directory."));
     }
     prm.leave_subsection();
   }

@@ -862,13 +862,22 @@ namespace Parameters
 
   struct CheckpointRestart
   {
-    bool enable_checkpoint;
-    // If true, restart simulation from the given checkpoint file
+    bool enable;
+
+    // If true, restart simulation from the checkpoint given by restart_from
     bool restart;
-    // Name of the file to write to/read when checkpointing/restarting resp.
-    std::string filename;
+
+    // Prefix of the checkpoint directories <prefix>_<time step>.chk
+    std::string prefix;
+
+    // Checkpoint directory to restart from, or "latest"
+    std::string restart_from;
+
     // Write checkpoint every N time steps
     unsigned int checkpoint_frequency;
+
+    // Number of checkpoint directories to keep (0 to keep all of them)
+    unsigned int n_checkpoints_to_keep;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

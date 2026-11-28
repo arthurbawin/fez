@@ -1,0 +1,19 @@
+
+DEAL::After writing time step 5 three times:
+DEAL::  chk_000005.bak0.chk
+DEAL::  chk_000005.bak1.chk
+DEAL::  chk_000005.chk
+DEAL::After writing time steps 10 and 15, keeping 2:
+DEAL::  chk_000005.bak0.chk
+DEAL::  chk_000005.bak1.chk
+DEAL::  chk_000010.chk
+DEAL::  chk_000015.chk
+DEAL::After writing time steps 30 and 20, keeping 1:
+DEAL::  chk_000005.bak0.chk
+DEAL::  chk_000005.bak1.chk
+DEAL::  chk_000020.chk
+DEAL::  chk_000030.chk
+DEAL::Latest checkpoint: ./chk_000030.chk/
+DEAL::Explicit checkpoint: ./chk_000020.chk/
+DEAL::Missing checkpoint detected
+DEAL::Different number of ranks detected

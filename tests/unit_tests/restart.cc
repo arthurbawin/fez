@@ -20,6 +20,8 @@
 template <int dim>
 void test_restart()
 {
+  remove_checkpoint_directories("checkpoint", MPI_COMM_WORLD);
+
   // Manually create the parameters of the MMS file
   // incompressible_ns/mms_2d_bdf2.prm
   Parameters::BoundaryConditionsData bc_data;
@@ -164,7 +166,7 @@ void test_restart()
   prm.enter_subsection("Checkpoint Restart");
   prm.set("enable checkpoint", "true");
   prm.set("restart", "false");
-  prm.set("checkpoint file", "checkpoint");
+  prm.set("checkpoint prefix", "checkpoint");
   prm.set("checkpoint frequency", "3");
   prm.leave_subsection();
 
@@ -202,7 +204,9 @@ void test_restart()
     prm.enter_subsection("Checkpoint Restart");
     prm.set("enable checkpoint", "false");
     prm.set("restart", "true");
-    prm.set("checkpoint file", "checkpoint");
+    prm.set("checkpoint prefix", "checkpoint");
+    // Restart from an explicit checkpoint directory, rather than the latest
+    prm.set("restart from", "checkpoint_000003.chk");
     prm.set("checkpoint frequency", "3");
     prm.leave_subsection();
 

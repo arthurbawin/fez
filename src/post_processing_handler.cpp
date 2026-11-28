@@ -2,60 +2,6 @@
 #include <post_processing_handler.h>
 #include <postprocessors_and_evaluators.h>
 
-#include <algorithm>
-#include <iomanip>
-#include <regex>
-#include <sstream>
-
-namespace
-{
-  std::vector<std::pair<double, std::string>>
-  read_pvd_entries_until_time(const std::string &filename,
-                              const double       max_time)
-  {
-    std::ifstream input(filename);
-    if (!input)
-      return {};
-
-    const std::regex dataset_regex("<DataSet[^>]*>");
-    const std::regex timestep_regex("timestep=\"([^\"]+)\"");
-    const std::regex file_regex("file=\"([^\"]+)\"");
-
-    // Compare at the same precision as deal.II's PVD writer.
-    std::ostringstream checkpoint_time;
-    checkpoint_time << std::setprecision(12) << max_time;
-    const double cutoff = std::stod(checkpoint_time.str());
-
-    std::vector<std::pair<double, std::string>> records;
-    std::string                                 line;
-    while (std::getline(input, line))
-    {
-      std::smatch dataset_match;
-      if (!std::regex_search(line, dataset_match, dataset_regex))
-        continue;
-
-      const std::string dataset = dataset_match.str();
-      std::smatch       timestep_match;
-      std::smatch       file_match;
-      if (!std::regex_search(dataset, timestep_match, timestep_regex) ||
-          !std::regex_search(dataset, file_match, file_regex))
-        continue;
-
-      try
-      {
-        const double time = std::stod(timestep_match[1].str());
-        if (time <= cutoff)
-          records.emplace_back(time, file_match[1].str());
-      }
-      catch (const std::exception &)
-      {}
-    }
-
-    return records;
-  }
-} // namespace
-
-
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
   const ComponentOrdering                                 &ordering,
@@ -208,44 +154,6 @@ void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
       }
     }
   }
-}
-
-template <int dim>
-void PostProcessingHandler<dim>::restore_pvd_entries_until_time(
-  const double      max_time,
-  const PrefixData &prefix_data)
-{
-  if (mpi_rank != 0)
-    return;
-
-  std::string suffix;
-  prefix_data.append_to_prefix_or_suffix(output_param, true, suffix);
-  suffix += ".pvd";
-
-  if (output_param.write_results)
-    visualization_times_and_names = read_pvd_entries_until_time(
-      output_param.output_dir + output_param.output_prefix + suffix, max_time);
-
-  if (output_param.skin.write_results)
-    visualization_times_and_names_skin =
-      read_pvd_entries_until_time(output_param.output_dir +
-                                    output_param.skin.output_prefix + suffix,
-                                  max_time);
-}
-
-template <int dim>
-void PostProcessingHandler<dim>::remove_visualization_record(
-  std::vector<std::pair<double, std::string>> &visualization_records,
-  const std::string                           &filename) const
-{
-  // Transfer times can round to the same PVD timestamp. Only the filename
-  // reliably identifies a repeated output record.
-  visualization_records.erase(std::remove_if(visualization_records.begin(),
-                                             visualization_records.end(),
-                                             [&](const auto &record) {
-                                               return record.second == filename;
-                                             }),
-                              visualization_records.end());
 }
 
 template <int dim>

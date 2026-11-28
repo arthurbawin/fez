@@ -1,6 +1,10 @@
 #ifndef POST_PROCESSING_HANDLER_H
 #define POST_PROCESSING_HANDLER_H
 
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/string.hpp>
+#include <boost/serialization/utility.hpp>
+#include <boost/serialization/vector.hpp>
 #include <components_ordering.h>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/timer.h>
@@ -194,12 +198,17 @@ public:
   void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
 
   /**
-   * Restore deal.II volume and skin PVD history through the checkpoint time.
-   * Missing files are allowed for runs that did not previously export results.
+   * Save or load this object for checkpoint/restart. The following data are
+   * serialized:
+   *
+   *  - postprocessing tables
+   *  - records of the .pvd files
+   *
+   * The other class members (DataOut objects, postprocessors, slice indices,
+   * etc.) are not serialized, and are recreated on restart.
    */
-  void
-  restore_pvd_entries_until_time(double            max_time,
-                                 const PrefixData &prefix_data = PrefixData());
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int version);
 
   /**
    * Calls the postprocess() function for each of the dof-based postprocessor
@@ -512,10 +521,6 @@ private:
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation;
 
-  void remove_visualization_record(
-    std::vector<std::pair<double, std::string>> &records,
-    const std::string                           &filename) const;
-
   // The times and names of the pvtu files in the pvd file
   std::vector<std::pair<double, std::string>> visualization_times_and_names;
   std::vector<std::pair<double, std::string>>
@@ -720,12 +725,11 @@ void PostProcessingHandler<dim>::output_volume_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    const double output_time =
+    visualization_times_and_names.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time;
-    remove_visualization_record(visualization_times_and_names, pvtu_file);
-    visualization_times_and_names.emplace_back(output_time, pvtu_file);
+        current_time,
+      pvtu_file);
   }
 
   data_out->clear_data_vectors();
@@ -806,12 +810,11 @@ void PostProcessingHandler<dim>::output_skin_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    const double output_time =
+    visualization_times_and_names_skin.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time;
-    remove_visualization_record(visualization_times_and_names_skin, pvtu_file);
-    visualization_times_and_names_skin.emplace_back(output_time, pvtu_file);
+        current_time,
+      pvtu_file);
   }
 
   data_out_skin->clear_data_vectors();
@@ -1288,6 +1291,22 @@ void PostProcessingHandler<dim>::compute_multiphase_indicators(
     std::cout.precision(old_precision);
     std::cout.flags(old_flags);
   }
+}
+
+template <int dim>
+template <class Archive>
+void PostProcessingHandler<dim>::serialize(Archive &ar,
+                                           const unsigned int /*version*/)
+{
+  ar &forces_table;
+  ar &forces_table_per_slice;
+  ar &structure_mean_position_table;
+  ar &field_integral_tables;
+  ar &volume_of_phases;
+  ar &center_of_mass_phases;
+  ar &average_velocity_phases;
+  ar &visualization_times_and_names;
+  ar &visualization_times_and_names_skin;
 }
 
 #endif

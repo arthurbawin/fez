@@ -282,6 +282,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
    * vectors. If restarting, setup_dofs() is called in the restart() function,
    * after loading the mesh.
    */
+  bool postprocessing_restored = false;
   if (!param.checkpoint_restart.restart)
   {
     if (should_create_triangulation())
@@ -294,7 +295,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     AssertThrow(!param.with_tree_based_adaptation(),
                 ExcMessage("Simulation restart with adaptive mesh refinement "
                            "(AMR) it currently not implemented."));
-    restart();
+    postprocessing_restored = restart();
   }
 
   setup_mappings();
@@ -353,7 +354,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
   // initial solution on this time interval. For unsteady simulations with mesh
   // adaptation with a Riemannian metric, this is needed to obtain an adapted
   // mesh that includes the initial condition.
-  postprocess_solution();
+  //
+  // If the postprocessing data were restored from a checkpoint, the restored
+  // solution was already postprocessed before writing the checkpoint, and is
+  // not postprocessed again, as in an uninterrupted simulation. Only the
+  // errors, which are not checkpointed, are computed again.
+  if (!postprocessing_restored)
+    postprocess_solution();
+  else if (should_compute_errors(time_handler))
+    compute_errors();
 
   while (!time_handler.is_finished())
   {
@@ -1371,6 +1380,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 
     archive << *this;
     archive << time_handler;
+    archive << *postproc_handler;
   }
 
   triangulation->save(tmp_checkpoint_prefix);
@@ -1382,7 +1392,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::restart()
+bool NavierStokesSolver<dim, with_moving_mesh>::restart()
 {
   pcout << std::endl;
   pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
@@ -1396,6 +1406,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   // the stored solutions
   setup_dofs();
 
+  bool postprocessing_restored = false;
   {
     std::ifstream checkpoint_file(checkpoint_prefix + "_rank" +
                                   std::to_string(mpi_rank));
@@ -1405,16 +1416,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
     archive >> *this;
     archive >> time_handler;
+
+    // time_handler.is_steady() refers to the checkpointed simulation,
+    // param.time_integration stores the data of the current simulation
+    postprocessing_restored =
+      time_handler.is_steady() == param.time_integration.is_steady();
+    if (postprocessing_restored)
+      archive >> *postproc_handler;
   }
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
 
-  const double output_time =
-    time_handler.is_steady() ?
-      static_cast<double>(time_handler.current_time_iteration) :
-      time_handler.current_time;
-  postproc_handler->restore_pvd_entries_until_time(output_time, prefix_data);
+  return postprocessing_restored;
 }
 
 // Explicit instantiation

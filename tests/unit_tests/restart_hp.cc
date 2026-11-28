@@ -244,7 +244,8 @@ void test_restart()
   }
 
   // Update the restart parameters then restart
-  // The forces and position must be compared visually in the output
+  // The tables are restored from the checkpoint, so the forces and position
+  // tables after restart must be identical to the complete tables above
   {
     prm.enter_subsection("Checkpoint Restart");
     prm.set("enable checkpoint", "false");
@@ -257,7 +258,7 @@ void test_restart()
     param.read(prm);
     FSISolverLessLambda<dim> problem(param);
     problem.run();
-    deallog << "Forces and positions for last step after restart:" << std::endl;
+    deallog << "Forces and positions tables after restart:" << std::endl;
     problem.write_forces(deallog.get_file_stream());
     problem.write_structure_mean_position(deallog.get_file_stream());
   }

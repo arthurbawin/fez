@@ -457,18 +457,27 @@ public:
   /**
    * Write the current state of the simulation to compressed save files. This
    * method and the restart() are based on deal.II's step 83. The written data
-   * are the mesh, the current and previous solutions, and the content of the
-   * time handler. All other data (dof_handler, finite element spaces,
-   * constraints, etc.) can be recomputed when the simulation restarts. See also
-   * step 83 for a discussion on this topic.
+   * are the mesh, the current and previous solutions, the content of the
+   * time and postprocessing handlers. The checkpoint is written after the
+   * solution of the current time step was postprocessed. All other data
+   * (dof_handler, finite element spaces, constraints, etc.) can be recomputed
+   * when the simulation restarts. See also step 83 for a discussion on this
+   * topic.
    */
   void checkpoint();
 
   /**
    * Restart the simulation from saved checkpoint files, written by
    * checkpoint().
+   *
+   * The postprocessing handler is restored if the checkpoint and the restarted
+   * simulation are both steady or both unsteady, in which case this function
+   * returns true. Otherwise, e.g., when restarting an unsteady simulation from
+   * a stationary checkpoint, the restarted simulation is considered to be a new
+   * run, whose postprocessing starts from scratch, and this function returns
+   * false.
    */
-  void restart();
+  bool restart();
 
   /**
    * Save this object to file. See also the comments for the checkpoint()
